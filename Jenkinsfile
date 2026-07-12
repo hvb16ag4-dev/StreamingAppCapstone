@@ -6,6 +6,8 @@ pipeline {
     choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Target environment')
     string(name: 'SSH_CRED_ID', defaultValue: '13.234.30.51')
     string(name: 'EC2_HOST', defaultValue: '52.66.235.170')
+    string(name: 'DOCKER_CRED_ID', defaultValue: 'Capstone_Grp4_Doc_ID')
+    string(name: 'DOCKER_IMAGE', defaultValue: 'harika130822/StreamingApp')
   }
 
   environment {
@@ -47,266 +49,61 @@ pipeline {
             }
         }
 
-        stage('Prepare environment auth files') {
+        stage('Docker build image') {
             steps {
-                withCredentials([
-                string(credentialsId: "${params.ENVIRONMENT}-jwt-secret", variable: 'JWT_SECRET'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-access-key", variable: 'AWS_ACCESS_KEY_ID'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-secret-key", variable: 'AWS_SECRET_ACCESS_KEY')
-                ]) {
-                sh '''
-                    set -e
-
-                    # Auth Service
-                    cat > backend/authService/.env <<EOF
-PORT=$AUTH_PORT
-MONGO_URI=mongodb://localhost:27017/$MONGO_DB
-JWT_SECRET=$JWT_SECRET
-CLIENT_URLS=$CLIENT_URLS
-AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-AWS_REGION=$AWS_REGION
-AWS_S3_BUCKET=$AWS_S3_BUCKET
-EOF
-'''
+                script {
+                  def customImage = docker.build("${env.DOCKER_IMAGE}:${env.BUILD_ID}")
                 }
             }
         }
 
-
-        stage('Prepare environment stream files') {
+        stage('Docker build Push') {
             steps {
-                withCredentials([
-                string(credentialsId: "${params.ENVIRONMENT}-jwt-secret", variable: 'JWT_SECRET'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-access-key", variable: 'AWS_ACCESS_KEY_ID'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-secret-key", variable: 'AWS_SECRET_ACCESS_KEY')
-                ]) {
-                sh '''
-                    set -e
-
-                    # Streaming Service
-                    cat > backend/streamingService/.env <<EOF
-PORT=$STREAMING_PORT
-MONGO_URI=mongodb://localhost:27017/$MONGO_DB
-JWT_SECRET=$JWT_SECRET
-CLIENT_URLS=$CLIENT_URLS
-AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-AWS_REGION=$AWS_REGION
-AWS_S3_BUCKET=$AWS_S3_BUCKET
-AWS_CDN_URL=$AWS_CDN_URL
-STREAMING_PUBLIC_URL=$STREAMING_PUBLIC_URL
-EOF
-'''
+                script {
+                  docker.withRegistry('',"${env.DOCKER_CRED_ID}"){
+                    customImage.push()
+                  }
                 }
             }
         }
 
-        stage('Prepare environment admin files') {
+        stage('Pull Docker Image into EC2') {
             steps {
-                withCredentials([
-                string(credentialsId: "${params.ENVIRONMENT}-jwt-secret", variable: 'JWT_SECRET'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-access-key", variable: 'AWS_ACCESS_KEY_ID'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-secret-key", variable: 'AWS_SECRET_ACCESS_KEY')
-                ]) {
-                sh '''
-                    set -e
-
-                    # Admin Service
-                    cat > backend/adminService/.env <<EOF
-PORT=$ADMIN_PORT
-MONGO_URI=mongodb://localhost:27017/$MONGO_DB
-JWT_SECRET=$JWT_SECRET
-CLIENT_URLS=$CLIENT_URLS
-AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-AWS_REGION=$AWS_REGION
-AWS_S3_BUCKET=$AWS_S3_BUCKET
-EOF
-'''
+                script {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no ec2-user@<EC2_INSTANCE_IP> << EOF
+                        docker pull ${customImage}
+                        EOF
+                    '''
                 }
             }
         }
 
-        stage('Prepare environment chat files') {
+        stage('Docker Compose Restart in EC2') {
             steps {
-                withCredentials([
-                string(credentialsId: "${params.ENVIRONMENT}-jwt-secret", variable: 'JWT_SECRET'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-access-key", variable: 'AWS_ACCESS_KEY_ID'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-secret-key", variable: 'AWS_SECRET_ACCESS_KEY')
-                ]) {
-                sh '''
-                    set -e
-
-                    # Chat Service
-                    cat > backend/chatService/.env <<EOF
-PORT=$CHAT_PORT
-MONGO_URI=mongodb://localhost:27017/$MONGO_DB
-JWT_SECRET=$JWT_SECRET
-CLIENT_URLS=$CLIENT_URLS
-EOF
-'''
+                script {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no ec2-user@<EC2_INSTANCE_IP> << EOF
+                        cd /path/to/docker-compose-directory
+                        docker-compose down
+                        docker-compose up -d
+                        EOF
+                    '''
                 }
             }
         }
 
-        stage('Prepare environment frontend files') {
-            steps {
-                withCredentials([
-                string(credentialsId: "${params.ENVIRONMENT}-jwt-secret", variable: 'JWT_SECRET'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-access-key", variable: 'AWS_ACCESS_KEY_ID'),
-                string(credentialsId: "${params.ENVIRONMENT}-aws-secret-key", variable: 'AWS_SECRET_ACCESS_KEY')
-                ]) {
-                sh '''
-                    set -e
-
-                    # Frontend
-                    cat > frontend/.env <<EOF
-REACT_APP_AUTH_API_URL=$REACT_APP_AUTH_API_URL
-REACT_APP_STREAMING_API_URL=$REACT_APP_STREAMING_API_URL
-REACT_APP_STREAMING_PUBLIC_URL=$REACT_APP_STREAMING_PUBLIC_URL
-REACT_APP_ADMIN_API_URL=$REACT_APP_ADMIN_API_URL
-REACT_APP_CHAT_API_URL=$REACT_APP_CHAT_API_URL
-REACT_APP_CHAT_SOCKET_URL=$REACT_APP_CHAT_SOCKET_URL
-EOF
-'''
-                }
-            }
-        }
-
-        stage('Copy files to EC2') {
-            steps {
-                sshagent(credentials: ["${env.SSH_CRED_ID}"]) {
-                sh '''
-                    echo "Copying files to EC2..."
-                    scp -o StrictHostKeyChecking=no -r * ${EC2_USERNAME}@${EC2_HOST}:/home/ubuntu
-                '''
-                }
-            }
-        }
-
-        stage('Installing dependencies in EC2') {
-            steps {
-                sshagent(credentials: ["${env.SSH_CRED_ID}"]) {
-                sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${EC2_HOST} '
-                    sudo apt update && sudo apt install npm -y &&
-                    cd backend/authService && npm install &&
-                    cd ../streamingService && npm install &&
-                    cd ../adminService && npm install &&
-                    cd ../chatService && npm install &&
-                    cd ../../frontend && npm install
-                    '
-                """
-                }
-            }
-        }
-
-        stage('Mongo DB setup in EC2') {
-            steps {
-                sshagent(credentials: ["${env.SSH_CRED_ID}"]) {
-                sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${EC2_HOST} '
-            
-                curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | \
-                    sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-6.0.gpg &&
-
-                echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-6.0.gpg ] \
-                https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/6.0 multiverse" | \
-                sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list &&
-
-                sudo apt update &&
-                sudo apt install -y mongodb-org &&
-                sudo systemctl start mongod &&
-                sudo systemctl enable mongod
-                    '
-                """
-                }
-            }
-        }
-
-        stage('Install PM2 on EC2') {
-            steps {
-                sshagent(credentials: ["${env.SSH_CRED_ID}"]) {
-                sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${EC2_HOST} '
-                    sudo npm install -g pm2
-                    '
-                """
-                }
-            }
-        }
-
-
-
-        stage('Start services in EC2') {
-            parallel {
-                stage('Start authservice in EC2') {
-                    steps {
-                        sshagent(credentials: ["${env.SSH_CRED_ID}"]) {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${EC2_HOST} '
-                            cd backend/authService &&
-                            pm2 start index.js --name authservice --watch --env $ENVIRONMENT_NAME
-                            '
-                        """
-                        }
-                    }
-                }
-
-                stage('Start streamingService in EC2') {
-                    steps {
-                        sshagent(credentials: ["${env.SSH_CRED_ID}"]) {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${EC2_HOST} '
-                            cd backend/streamingService &&
-                            pm2 start index.js --name streamingService --watch --env $ENVIRONMENT_NAME
-                            '
-                        """
-                        }
-                    }
-                }
-
-                stage('Start adminService in EC2') {
-                    steps {
-                        sshagent(credentials: ["${env.SSH_CRED_ID}"]) {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${EC2_HOST} '
-                            cd backend/adminService &&
-                            pm2 start index.js --name adminService --watch --env $ENVIRONMENT_NAME
-                            '
-                        """
-                        }
-                    }
-                }
-
-                stage('Start chatService in EC2') {
-                    steps {
-                        sshagent(credentials: ["${env.SSH_CRED_ID}"]) {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${EC2_HOST} '
-                            cd backend/chatService &&
-                            pm2 start index.js --name chatService --watch --env $ENVIRONMENT_NAME
-                            '
-                        """
-                        }
-                    }
-                }
-
-                stage('Start frontend on EC2') {
-                    steps {
-                        sshagent(credentials: ["${env.SSH_CRED_ID}"]) {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${EC2_HOST} '
-                            cd frontend &&
-                            pm2 start npm --name frontend -- start
-                            '
-                        """
-                        }
-                    }
-                }
-            }
-        }
+        // stage('Docker build push image to ECR') {
+        //     steps {
+        //         script {
+        //             sh '''
+        //                 aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin <account_id>.dkr.ecr.$AWS_REGION.amazonaws.com
+        //                 docker tag my-image:latest <account_id>.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+        //                 docker push <account_id>.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+        //             '''
+        //         }
+        //     }
+        // }
 
     }
 
