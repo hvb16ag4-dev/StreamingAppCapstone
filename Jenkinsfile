@@ -1,13 +1,15 @@
 pipeline {
-  agent any
+  agent {
+      label 'CICD_ASSIGN_NODE'
+  }
   // deploy application into new EC2 instance - task wise not required but weekly wise we need it
 
   parameters {
     choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Target environment')
-    string(name: 'SSH_CRED_ID', defaultValue: '13.234.30.51')
-    string(name: 'EC2_HOST', defaultValue: '52.66.235.170')
+    string(name: 'SSH_CRED_ID', defaultValue: '3.110.51.45')
+    string(name: 'EC2_HOST', defaultValue: '3.110.51.45')
     string(name: 'DOCKER_CRED_ID', defaultValue: 'Capstone_Grp4_Doc_ID')
-    string(name: 'DOCKER_IMAGE', defaultValue: 'harika130822/StreamingApp')
+    string(name: 'DOCKER_IMAGE', defaultValue: 'harika130822/streamingapp')
   }
 
   environment {
@@ -49,44 +51,54 @@ pipeline {
             }
         }
 
-        stage('Docker build image') {
-            steps {
-                script {
-                  def customImage = docker.build("${env.DOCKER_IMAGE}:${env.BUILD_ID}")
-                }
-            }
-        }
+        // stage('Docker build image') {
+        //     steps {
+        //         script {
+        //           def customImage = docker.build("${env.DOCKER_IMAGE}:${env.BUILD_ID}")
+        //         }
+        //     }
+        // }
 
-        stage('Docker build Push') {
-            steps {
-                script {
-                  docker.withRegistry('',"${env.DOCKER_CRED_ID}"){
-                    customImage.push()
-                  }
-                }
-            }
-        }
+        // stage('Docker build Push') {
+        //     steps {
+        //         script {
+        //           docker.withRegistry('',"${env.DOCKER_CRED_ID}"){
+        //             customImage.push()
+        //           }
+        //         }
+        //     }
+        // }
 
-        stage('Pull Docker Image into EC2') {
+        // stage('Pull Docker Image into EC2') {
+        //     steps {
+        //         script {
+        //             sh '''
+        //                 ssh -o StrictHostKeyChecking=no ec2-user@<EC2_INSTANCE_IP> << EOF
+        //                 docker pull ${customImage}
+        //                 EOF
+        //             '''
+        //         }
+        //     }
+        // }
+
+        stage('Docker Compose Build and Push') {
+          steps {
+              script {
+                  sh 'cd ${WORKSPACE}'
+                  sh 'docker compose build'
+                  sh 'docker compose push'
+              }
+          }
+      }
+
+        stage('Deploy with Docker Compose') {
             steps {
                 script {
                     sh '''
-                        ssh -o StrictHostKeyChecking=no ec2-user@<EC2_INSTANCE_IP> << EOF
-                        docker pull ${customImage}
-                        EOF
-                    '''
-                }
-            }
-        }
-
-        stage('Docker Compose Restart in EC2') {
-            steps {
-                script {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ec2-user@<EC2_INSTANCE_IP> << EOF
+                        ssh -o StrictHostKeyChecking=no ${env.EC2_USERNAME}@${env.EC2_HOST} << EOF
                         cd /path/to/docker-compose-directory
-                        docker-compose down
-                        docker-compose up -d
+                        docker compose pull
+                        docker compose up -d
                         EOF
                     '''
                 }
