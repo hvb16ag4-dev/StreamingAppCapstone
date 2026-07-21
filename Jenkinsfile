@@ -16,9 +16,11 @@ pipeline {
     AWS_S3_BUCKET = "your_bucket_name"
     AWS_CDN_URL = "your_cdn_url"
     JWT_SECRET = "changeme"
-    ECR_REGISTRY = "your-account-id.dkr.ecr.ap-south-1.amazonaws.com"
+    AWS_ACCOUNT_ID  = "129373676098"
+    ECR_REGISTRY    = "public.ecr.aws/l5r9g0t4" //"${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
     AWS_ACCESS_KEY_ID = ""
     AWS_SECRET_ACCESS_KEY = ""
+    IMAGE_TAG = "${BUILD_NUMBER}"
 
 
     SSH_CRED_ID = "${params.SSH_CRED_ID}"
@@ -48,6 +50,15 @@ pipeline {
                 git branch: 'Jenkins_CICD_Setup', url: "${GIT_REPO}"
             }
         }
+        
+        stage('pwd') {
+            steps {
+                sh """
+                pwd
+                ls -alh
+                """
+            }
+        }
 
         stage('Login to ECR') {
             steps {
@@ -65,11 +76,11 @@ pipeline {
             steps {
                 script {
                 def services = [
+                    "backend/adminService"      : "capstone/adminservice",
+                    "backend/authService"       : "capstone/authservice",
+                    "backend/chatService"       : "capstone/chatservice",
+                    "backend/streamingService"  : "capstone/streamingservice",
                     "frontend"                  : "capstone/frontend",
-                    "backend/adminService"      : "capstone/adminService",
-                    "backend/authService"       : "capstone/authService",
-                    "backend/chatService"       : "capstone/chatService",
-                    "backend/streamingService"  : "capstone/streamingService",
                 ]
 
                 services.each { folder, repoName ->
