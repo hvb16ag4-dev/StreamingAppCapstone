@@ -2,7 +2,7 @@ FROM node:18-alpine AS base
 
 WORKDIR /app/adminService
 
-COPY backend/adminService/package*.json ./
+COPY ./backend/adminService/package*.json ./
 RUN npm install --production
 
 COPY backend/adminService/. ./
