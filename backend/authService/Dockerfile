@@ -1,6 +1,6 @@
 FROM node:18-alpine AS base
 
-WORKDIR /app
+WORKDIR /app/authService
 
 COPY backend/authService/package*.json ./
 RUN npm install --production
