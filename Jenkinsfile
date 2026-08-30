@@ -49,11 +49,12 @@ pipeline {
             "backend/streamingService" : "capstone/streamingservice",
             "frontend"                 : "capstone/frontend"
           ]
-
+    
           services.each { folder, repoName ->
             echo "Building image for ${folder}"
             sh """
-              docker build -t ${repoName}:${IMAGE_TAG} ./${folder}
+              docker build -t ${repoName}:${IMAGE_TAG} \
+                -f ${folder}/Dockerfile .
               docker tag ${repoName}:${IMAGE_TAG} ${ECR_REGISTRY}/${repoName}:${IMAGE_TAG}
               docker push ${ECR_REGISTRY}/${repoName}:${IMAGE_TAG}
             """
@@ -61,6 +62,7 @@ pipeline {
         }
       }
     }
+
 
     // stage('Deploy to EC2') {
     //   steps {
