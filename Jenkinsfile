@@ -54,7 +54,7 @@ pipeline {
             echo "Building image for ${folder}"
             sh """
               docker build -t ${repoName}:${IMAGE_TAG} \
-                -f ${folder}/Dockerfile .
+                -f ${folder}/Dockerfile ./backend
               docker tag ${repoName}:${IMAGE_TAG} ${ECR_REGISTRY}/${repoName}:${IMAGE_TAG}
               docker push ${ECR_REGISTRY}/${repoName}:${IMAGE_TAG}
             """
