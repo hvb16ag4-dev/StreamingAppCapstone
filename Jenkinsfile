@@ -23,7 +23,7 @@ pipeline {
 
     stage('Git Checkout') {
       steps {
-        git branch: 'Jenkins_CICD_Setup', url: "${GIT_REPO}"
+        git branch: 'CICD_DockerImage_ECR_EC2', url: "${GIT_REPO}"
       }
     }
 
@@ -62,38 +62,38 @@ pipeline {
       }
     }
 
-    stage('Deploy to EC2') {
-      steps {
-        sshagent (credentials: ["${params.SSH_CRED_ID}"]) {
-          sh """
-            ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${params.EC2_HOST} << 'EOF'
-              set -e
-              echo "Pulling latest Docker images..."
-              docker login -u AWS -p $(aws ecr-public get-login-password --region ${AWS_REGION}) ${ECR_REGISTRY}
+    // stage('Deploy to EC2') {
+    //   steps {
+    //     sshagent (credentials: ["${params.SSH_CRED_ID}"]) {
+    //       sh """
+    //         ssh -o StrictHostKeyChecking=no ${EC2_USERNAME}@${params.EC2_HOST} << 'EOF'
+    //           set -e
+    //           echo "Pulling latest Docker images..."
+    //           docker login -u AWS -p $(aws ecr-public get-login-password --region ${AWS_REGION}) ${ECR_REGISTRY}
               
-              # Example: restart services with new images
-              docker pull ${ECR_REGISTRY}/capstone/authservice:${IMAGE_TAG}
-              docker pull ${ECR_REGISTRY}/capstone/streamingservice:${IMAGE_TAG}
-              docker pull ${ECR_REGISTRY}/capstone/adminservice:${IMAGE_TAG}
-              docker pull ${ECR_REGISTRY}/capstone/chatservice:${IMAGE_TAG}
-              docker pull ${ECR_REGISTRY}/capstone/frontend:${IMAGE_TAG}
+    //           # Example: restart services with new images
+    //           docker pull ${ECR_REGISTRY}/capstone/authservice:${IMAGE_TAG}
+    //           docker pull ${ECR_REGISTRY}/capstone/streamingservice:${IMAGE_TAG}
+    //           docker pull ${ECR_REGISTRY}/capstone/adminservice:${IMAGE_TAG}
+    //           docker pull ${ECR_REGISTRY}/capstone/chatservice:${IMAGE_TAG}
+    //           docker pull ${ECR_REGISTRY}/capstone/frontend:${IMAGE_TAG}
 
-              echo "Restarting containers..."
-              docker-compose -f /home/ubuntu/docker-compose.yml down
-              docker-compose -f /home/ubuntu/docker-compose.yml up -d
-            EOF
-          """
-        }
-      }
-    }
+    //           echo "Restarting containers..."
+    //           docker-compose -f /home/ubuntu/docker-compose.yml down
+    //           docker-compose -f /home/ubuntu/docker-compose.yml up -d
+    //         EOF
+    //       """
+    //     }
+    //   }
+    // }
 
-    stage('Update kubeconfig') {
-      steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                          credentialsId: 'AWS_PROD_CRED_G4']]) {
-          sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${ENVIRONMENT_NAME}-eks"
-        }
-      }
+    // stage('Update kubeconfig') {
+    //   steps {
+    //     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+    //                       credentialsId: 'AWS_PROD_CRED_G4']]) {
+    //       sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${ENVIRONMENT_NAME}-eks"
+    //     }
+    //   }
     }
   }
 
