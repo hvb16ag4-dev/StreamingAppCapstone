@@ -32,7 +32,7 @@ pipeline {
           sh "docker container prune -f"
     
           // If you want to remove ALL images (be careful!)
-          // sh "docker rmi -f $(docker images -q) || true"
+           sh "docker rmi -f $(docker images -q) || true"
         }
       }
     }
