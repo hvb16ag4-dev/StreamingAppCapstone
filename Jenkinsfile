@@ -32,7 +32,7 @@ pipeline {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                           credentialsId: 'AWS_PROD_CRED_G4']]) {
           sh """
-            aws ecr-public get-login-password --region ${AWS_REGION} \
+            aws ecr-public get-login-password --region us-east-1 \
             | docker login --username AWS --password-stdin ${ECR_REGISTRY}
           """
         }
