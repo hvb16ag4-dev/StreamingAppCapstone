@@ -94,7 +94,7 @@ pipeline {
     //       sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${ENVIRONMENT_NAME}-eks"
     //     }
     //   }
-    }
+    // }
   }
 
   post {
