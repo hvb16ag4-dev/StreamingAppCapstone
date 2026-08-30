@@ -47,7 +47,6 @@ pipeline {
             "backend/authService"      : "capstone/authservice",
             "backend/chatService"      : "capstone/chatservice",
             "backend/streamingService" : "capstone/streamingservice",
-            "frontend"                 : "capstone/frontend"
           ]
     
           services.each { folder, repoName ->
@@ -55,6 +54,26 @@ pipeline {
             sh """
               docker build -t ${repoName}:${IMAGE_TAG} \
                 -f ${folder}/Dockerfile .
+              docker tag ${repoName}:${IMAGE_TAG} ${ECR_REGISTRY}/${repoName}:${IMAGE_TAG}
+              docker push ${ECR_REGISTRY}/${repoName}:${IMAGE_TAG}
+            """
+          }
+        }
+      }
+    }
+
+    stage('Build and Push Images - frontend') {
+      steps {
+        script {
+          def services = [
+            "frontend"                 : "capstone/frontend"
+          ]
+    
+          services.each { folder, repoName ->
+            echo "Building image for ${folder}"
+            sh """
+              docker build -t ${repoName}:${IMAGE_TAG} \
+                -f ${folder}/Dockerfile ./frontend
               docker tag ${repoName}:${IMAGE_TAG} ${ECR_REGISTRY}/${repoName}:${IMAGE_TAG}
               docker push ${ECR_REGISTRY}/${repoName}:${IMAGE_TAG}
             """
