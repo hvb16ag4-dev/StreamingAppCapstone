@@ -20,6 +20,23 @@ pipeline {
   }
 
   stages {
+    stage('Cleanup Docker Images') {
+      steps {
+        script {
+          echo "Cleaning up old Docker images..."
+    
+          // Remove dangling (unused) images
+          sh "docker image prune -f"
+    
+          // Optionally remove stopped containers too
+          sh "docker container prune -f"
+    
+          // If you want to remove ALL images (be careful!)
+          // sh "docker rmi -f $(docker images -q) || true"
+        }
+      }
+    }
+    
 
     stage('Git Checkout') {
       steps {
