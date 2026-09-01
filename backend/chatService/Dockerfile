@@ -5,7 +5,7 @@ WORKDIR /app/chatService
 COPY backend/chatService/package*.json ./
 RUN npm install --production
 
-COPY . .
+COPY backend/chatService/. ./
 ENV NODE_ENV=production
 EXPOSE 3004
 

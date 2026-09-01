@@ -2,10 +2,10 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci --omit=dev
+COPY frontend/package*.json ./
+RUN npm install
 
-COPY . .
+COPY frontend/. .
 
 ARG REACT_APP_AUTH_API_URL
 ARG REACT_APP_STREAMING_API_URL

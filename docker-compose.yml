@@ -11,7 +11,8 @@ services:
 
   auth:
     build:
-      context: ./backend/authService
+      context: .
+      dockerfile: backend/authService/Dockerfile
     depends_on:
       - mongo
     environment:
@@ -28,8 +29,8 @@ services:
 
   streaming:
     build:
-      context: ./backend
-      dockerfile: streamingService/Dockerfile
+      context: .
+      dockerfile: backend/streamingService/Dockerfile
     depends_on:
       - mongo
     environment:
@@ -48,8 +49,8 @@ services:
 
   admin:
     build:
-      context: ./backend
-      dockerfile: adminService/Dockerfile
+      context: .
+      dockerfile: backend/adminService/Dockerfile
     depends_on:
       - mongo
     environment:
@@ -67,8 +68,8 @@ services:
 
   chat:
     build:
-      context: ./backend
-      dockerfile: chatService/Dockerfile
+      context: .
+      dockerfile: backend/chatService/Dockerfile
     depends_on:
       - mongo
     environment:
@@ -81,7 +82,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         REACT_APP_AUTH_API_URL: ${REACT_APP_AUTH_API_URL:-http://localhost:3001/api}
         REACT_APP_STREAMING_API_URL: ${REACT_APP_STREAMING_API_URL:-http://localhost:3002/api}
