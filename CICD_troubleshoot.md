@@ -14,7 +14,7 @@ docker build -t ${repoName}:${IMAGE_TAG} -f ${folder}/Dockerfile .
 
 ## frontend - Dockerfile - its looking for public/index.html and so have to route differently
 ```
-COPY package*.json ./
+COPY frontend/package*.json ./
 
 #Jenkins Docker file location
 docker build -t ${repoName}:${IMAGE_TAG} -f ${folder}/Dockerfile ./frontend
@@ -24,6 +24,10 @@ docker build -t ${repoName}:${IMAGE_TAG} -f ${folder}/Dockerfile ./frontend
 
 Size of backend services are around 90MB, any ways to get it to 60MB
 > <img width="970" height="341" alt="image" src="https://github.com/user-attachments/assets/00f1c9eb-7eb7-4581-b5f0-7bee16fc83f2" />
+
+
+Updated the Dockerfiles and the Jenkinfile - comment DockerCompose - Jenkine in Sync - now the size is around 60MB
+> ![alt text](image.png)
 
 
 # 3. CICD pipeline Time reduction
