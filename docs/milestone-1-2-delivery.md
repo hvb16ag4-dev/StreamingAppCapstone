@@ -23,7 +23,7 @@ Record each decision here before implementing the affected work. Never put AWS c
 | Decision/input | Current value | Needed for |
 |---|---|---|
 | AWS account to deploy into | **Needed from owner** (share account alias/ID only if useful; never credentials) | Resource ownership and cost estimate |
-| AWS region | `ap-south-1` is used by current examples; confirm | Terraform, ECR, EKS, Ingress |
+| AWS region | `ap-south-1` is used by current examples; pending owner confirmation | Terraform, ECR, EKS, Ingress |
 | Deployment target | Create a new dedicated VPC and EKS cluster; no existing VPC/EKS is available | Terraform scope and resource import/avoidance |
 | Cost constraints and allowed node types/capacity | Minimize cost; validate locally first; use AWS only for temporary final verification, then stop/destroy resources | EKS sizing and safe testing/cleanup |
 | DNS/domain and TLS certificate | Use the generated ALB hostname for temporary verification; defer custom domain/TLS to production testing | Ingress host rules and frontend URLs |
@@ -130,11 +130,11 @@ Add dated entries when a challenge is observed and resolved. Include the failing
 
 ## Git checkpoint policy
 
-Use one focused commit for each completed task or logical checkpoint, for example:
+Work on the local `feature_terraform` branch. Use one focused commit for each completed task or logical checkpoint, for example:
 
 1. `docs: add milestone 1 and 2 delivery plan`
 2. `infra: provision EKS foundation with Terraform`
 3. `deploy: add Helm ingress and EKS application configuration`
 4. `docs: record deployment validation and evidence`
 
-Before each push, inspect `git status` and `git diff --cached`, ensure secrets/state/evidence with sensitive information are excluded or redacted, and push only to the agreed branch. Record the resulting commit hash and validation evidence in this document or the corresponding task documentation.
+Before each commit, inspect `git status` and `git diff --cached`, ensure secrets/state/evidence with sensitive information are excluded or redacted, and include the required co-author trailer. Do not push from this environment: the owner will push `feature_terraform` from their console. After each meaningful checkpoint, report the commit hash and whether it is ready for the owner to push.
