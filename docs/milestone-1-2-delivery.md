@@ -24,7 +24,7 @@ Record each decision here before implementing the affected work. Never put AWS c
 |---|---|---|
 | AWS account to deploy into | **Needed from owner** (share account alias/ID only if useful; never credentials) | Resource ownership and cost estimate |
 | AWS region | `ap-south-1` (Mumbai), confirmed by owner | Terraform, ECR, EKS, Ingress |
-| AWS access method | IAM Identity Center is available; use a dedicated permission set and assigned role, not a long-lived IAM user access key | Secure Terraform and deployment access |
+| AWS access method | IAM Identity Center is available; owner can create/assign a dedicated permission set and role. Do not use a long-lived IAM user access key. | Secure Terraform and deployment access |
 | Deployment target | Create a new dedicated VPC and EKS cluster; no existing VPC/EKS is available | Terraform scope and resource import/avoidance |
 | Cost constraints and allowed node types/capacity | Minimize cost; validate locally first; use AWS only for temporary final verification, then stop/destroy resources | EKS sizing and safe testing/cleanup |
 | DNS/domain and TLS certificate | Use the generated ALB hostname for temporary verification; defer custom domain/TLS to production testing | Ingress host rules and frontend URLs |
