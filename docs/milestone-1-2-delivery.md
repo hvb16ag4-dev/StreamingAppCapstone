@@ -24,6 +24,7 @@ Record each decision here before implementing the affected work. Never put AWS c
 |---|---|---|
 | AWS account to deploy into | **Needed from owner** (share account alias/ID only if useful; never credentials) | Resource ownership and cost estimate |
 | AWS region | `ap-south-1` (Mumbai), confirmed by owner | Terraform, ECR, EKS, Ingress |
+| AWS access method | IAM Identity Center is available; use a dedicated permission set and assigned role, not a long-lived IAM user access key | Secure Terraform and deployment access |
 | Deployment target | Create a new dedicated VPC and EKS cluster; no existing VPC/EKS is available | Terraform scope and resource import/avoidance |
 | Cost constraints and allowed node types/capacity | Minimize cost; validate locally first; use AWS only for temporary final verification, then stop/destroy resources | EKS sizing and safe testing/cleanup |
 | DNS/domain and TLS certificate | Use the generated ALB hostname for temporary verification; defer custom domain/TLS to production testing | Ingress host rules and frontend URLs |
@@ -32,7 +33,7 @@ Record each decision here before implementing the affected work. Never put AWS c
 | Terraform state storage | Recommend remote S3 state with locking; confirm whether a state bucket/lock mechanism already exists | Safe collaboration and repeatable Terraform runs |
 | Image/deployment ownership | Current Jenkinsfile builds and pushes images; confirm whether Jenkins remains the deployment runner or a local operator runs Helm | CI credentials and deployment procedure |
 
-Use AWS IAM Identity Center/assumed roles or another approved short-lived credential workflow where possible. Do not paste credentials into chat or commit them. The owner should configure local AWS CLI/role access and Jenkins credentials directly in their trusted environments.
+Use AWS IAM Identity Center with a dedicated permission set and assigned group/user for Terraform and deployment. Do not create a long-lived `terraform_user` access key when Identity Center is available. The account administrator should grant only the actions needed for the approved resources and `iam:PassRole` to the specific EKS roles. Do not paste credentials into chat or commit them. The owner should configure local AWS CLI SSO access and any Jenkins role directly in their trusted environments.
 
 ### Cost and lifecycle policy
 
@@ -48,7 +49,8 @@ Use AWS IAM Identity Center/assumed roles or another approved short-lived creden
 
 - [ ] Confirm the decisions and inputs in the table above.
 - [ ] Confirm the AWS identity/role has only the required permissions and is configured locally or in Jenkins.
-- [ ] Confirm required local/agent tools: Terraform, AWS CLI, Docker, kubectl, and Helm.
+- [ ] Install/configure required tools in the same WSL environment used for the repository: Terraform, AWS CLI, Docker, kubectl, and Helm.
+- [ ] Configure AWS CLI with IAM Identity Center and verify the selected profile/account using `aws sts get-caller-identity`.
 - [ ] Configure a budget alert and agree on a cleanup window for temporary EKS resources.
 - [ ] Use the generated ALB hostname for temporary verification; revisit the owner's domain and TLS certificate during production testing.
 
