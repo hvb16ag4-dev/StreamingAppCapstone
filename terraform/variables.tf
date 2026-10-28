@@ -13,7 +13,20 @@ variable "project_name" {
 variable "cluster_version" {
   description = "Kubernetes version for the EKS cluster."
   type        = string
-  default     = "1.29"
+  default     = "1.37"
+}
+
+variable "cluster_public_access_cidrs" {
+  description = "IPv4 CIDR ranges allowed to reach the public EKS API endpoint. Use trusted operator/CI egress addresses only."
+  type        = list(string)
+
+  validation {
+    condition = length(var.cluster_public_access_cidrs) > 0 && !contains(
+      var.cluster_public_access_cidrs,
+      "0.0.0.0/0"
+    )
+    error_message = "Provide at least one trusted IPv4 CIDR and do not expose the EKS API to 0.0.0.0/0."
+  }
 }
 
 variable "node_instance_type" {

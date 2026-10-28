@@ -2,6 +2,10 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+provider "aws" {
+  region = var.aws_region
+}
+
 locals {
   azs      = slice(data.aws_availability_zones.available.names, 0, 3)
   name     = "${var.project_name}-eks"
@@ -78,39 +82,6 @@ resource "aws_security_group" "cluster" {
   })
 }
 
-resource "aws_security_group" "nodes" {
-  name        = "${var.project_name}-eks-nodes-sg"
-  description = "EKS worker node security group"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description     = "Allow control plane to reach nodes"
-    from_port       = 1025
-    to_port         = 65535
-    protocol        = "tcp"
-    security_groups = [aws_security_group.cluster.id]
-  }
-
-  ingress {
-    description = "Allow node-to-node traffic"
-    from_port   = 0
-    to_port     = 65535
-    protocol    = "-1"
-    self        = true
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(var.tags, {
-    Name = "${var.project_name}-eks-nodes-sg"
-  })
-}
-
 resource "aws_iam_role" "cluster" {
   name = "${var.project_name}-eks-cluster-role"
 
@@ -174,6 +145,7 @@ resource "aws_eks_cluster" "main" {
     subnet_ids              = aws_subnet.public[*].id
     endpoint_private_access = true
     endpoint_public_access  = true
+    public_access_cidrs     = var.cluster_public_access_cidrs
     security_group_ids      = [aws_security_group.cluster.id]
   }
 
@@ -217,41 +189,8 @@ resource "aws_iam_openid_connect_provider" "eks" {
 }
 
 resource "aws_iam_policy" "aws_load_balancer_controller" {
-  name = "${var.project_name}-alb-controller-policy"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "elasticloadbalancing:DescribeLoadBalancers",
-          "elasticloadbalancing:DescribeLoadBalancerAttributes",
-          "elasticloadbalancing:DescribeListeners",
-          "elasticloadbalancing:DescribeTargetGroups",
-          "elasticloadbalancing:DescribeTargetHealth",
-          "elasticloadbalancing:DescribeRules",
-          "elasticloadbalancing:DescribeTags",
-          "ec2:DescribeVpcs",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeSecurityGroups",
-          "ec2:DescribeInstances",
-          "ec2:DescribeAddresses",
-          "ec2:DescribeAvailabilityZones",
-          "ec2:DescribeNetworkInterfaces",
-          "ec2:DescribeTags",
-          "ec2:GetCoipPoolUsage",
-          "ec2:DescribeCoipPools",
-          "iam:CreateServiceLinkedRole",
-          "iam:GetServerCertificate",
-          "wafv2:GetWebACLForResource",
-          "wafv2:GetWebACL",
-          "wafv2:AssociateWebACL",
-          "wafv2:DisassociateWebACL"
-        ],
-        Resource = "*"
-      }
-    ]
-  })
+  name   = "${var.project_name}-alb-controller-policy"
+  policy = file("${path.module}/aws-load-balancer-controller-policy.json")
 }
 
 data "aws_iam_policy_document" "load_balancer_controller_assume_role" {
@@ -268,6 +207,12 @@ data "aws_iam_policy_document" "load_balancer_controller_assume_role" {
       test     = "StringEquals"
       variable = "${aws_iam_openid_connect_provider.eks.url}:sub"
       values   = ["system:serviceaccount:kube-system:aws-load-balancer-controller"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${aws_iam_openid_connect_provider.eks.url}:aud"
+      values   = ["sts.amazonaws.com"]
     }
   }
 }

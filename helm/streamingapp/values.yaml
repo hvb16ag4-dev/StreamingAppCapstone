@@ -6,14 +6,16 @@ mongo:
   port: 27017
   storage: 5Gi
 
+secrets:
+  existingSecret: streamingapp-runtime
+
 services:
   auth:
     image: "123456789012.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-auth:latest"
     port: 3001
     env:
       PORT: "3001"
-      MONGO_URI: "mongodb://mongo:27017/streamingapp"
-      JWT_SECRET: "changeme"
+      MONGO_DATABASE: "streamingapp"
       CLIENT_URLS: "http://localhost:3000"
       AWS_REGION: "ap-south-1"
       AWS_S3_BUCKET: "" 
@@ -22,8 +24,7 @@ services:
     port: 3002
     env:
       PORT: "3002"
-      MONGO_URI: "mongodb://mongo:27017/streamingapp"
-      JWT_SECRET: "changeme"
+      MONGO_DATABASE: "streamingapp"
       CLIENT_URLS: "http://localhost:3000"
       AWS_REGION: "ap-south-1"
       AWS_S3_BUCKET: ""
@@ -34,8 +35,7 @@ services:
     port: 3003
     env:
       PORT: "3003"
-      MONGO_URI: "mongodb://mongo:27017/streamingapp"
-      JWT_SECRET: "changeme"
+      MONGO_DATABASE: "streamingapp"
       CLIENT_URLS: "http://localhost:3000"
       AWS_REGION: "ap-south-1"
       AWS_S3_BUCKET: ""
@@ -45,24 +45,16 @@ services:
     port: 3004
     env:
       PORT: "3004"
-      MONGO_URI: "mongodb://mongo:27017/streamingapp"
-      JWT_SECRET: "changeme"
+      MONGO_DATABASE: "streamingapp"
       CLIENT_URLS: "http://localhost:3000"
   frontend:
     image: "123456789012.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-frontend:latest"
     port: 80
-    env:
-      REACT_APP_AUTH_API_URL: "http://localhost:3001/api"
-      REACT_APP_STREAMING_API_URL: "http://localhost:3002/api"
-      REACT_APP_STREAMING_PUBLIC_URL: "http://localhost:3002"
-      REACT_APP_ADMIN_API_URL: "http://localhost:3003/api/admin"
-      REACT_APP_CHAT_API_URL: "http://localhost:3004/api/chat"
-      REACT_APP_CHAT_SOCKET_URL: "http://localhost:3004"
 
 ingress:
   enabled: true
   className: "alb"
-  host: "streamingapp.local"
+  host: ""
   annotations:
     kubernetes.io/ingress.class: "alb"
     alb.ingress.kubernetes.io/scheme: "internet-facing"

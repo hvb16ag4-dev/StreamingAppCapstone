@@ -82,9 +82,12 @@ spec:
             - name: PORT
               value: {{ .Values.services.auth.env.PORT | quote }}
             - name: MONGO_URI
-              value: {{ .Values.services.auth.env.MONGO_URI | quote }}
+              value: "mongodb://{{ .Release.Name }}-mongo:{{ .Values.mongo.port }}/{{ .Values.services.auth.env.MONGO_DATABASE }}"
             - name: JWT_SECRET
-              value: {{ .Values.services.auth.env.JWT_SECRET | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | quote }}
+                  key: jwt-secret
             - name: CLIENT_URLS
               value: {{ .Values.services.auth.env.CLIENT_URLS | quote }}
             - name: AWS_REGION
@@ -133,9 +136,12 @@ spec:
             - name: PORT
               value: {{ .Values.services.streaming.env.PORT | quote }}
             - name: MONGO_URI
-              value: {{ .Values.services.streaming.env.MONGO_URI | quote }}
+              value: "mongodb://{{ .Release.Name }}-mongo:{{ .Values.mongo.port }}/{{ .Values.services.streaming.env.MONGO_DATABASE }}"
             - name: JWT_SECRET
-              value: {{ .Values.services.streaming.env.JWT_SECRET | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | quote }}
+                  key: jwt-secret
             - name: CLIENT_URLS
               value: {{ .Values.services.streaming.env.CLIENT_URLS | quote }}
             - name: AWS_REGION
@@ -188,9 +194,12 @@ spec:
             - name: PORT
               value: {{ .Values.services.admin.env.PORT | quote }}
             - name: MONGO_URI
-              value: {{ .Values.services.admin.env.MONGO_URI | quote }}
+              value: "mongodb://{{ .Release.Name }}-mongo:{{ .Values.mongo.port }}/{{ .Values.services.admin.env.MONGO_DATABASE }}"
             - name: JWT_SECRET
-              value: {{ .Values.services.admin.env.JWT_SECRET | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | quote }}
+                  key: jwt-secret
             - name: CLIENT_URLS
               value: {{ .Values.services.admin.env.CLIENT_URLS | quote }}
             - name: AWS_REGION
@@ -241,9 +250,12 @@ spec:
             - name: PORT
               value: {{ .Values.services.chat.env.PORT | quote }}
             - name: MONGO_URI
-              value: {{ .Values.services.chat.env.MONGO_URI | quote }}
+              value: "mongodb://{{ .Release.Name }}-mongo:{{ .Values.mongo.port }}/{{ .Values.services.chat.env.MONGO_DATABASE }}"
             - name: JWT_SECRET
-              value: {{ .Values.services.chat.env.JWT_SECRET | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | quote }}
+                  key: jwt-secret
             - name: CLIENT_URLS
               value: {{ .Values.services.chat.env.CLIENT_URLS | quote }}
 ---
@@ -284,19 +296,6 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: {{ .Values.services.frontend.port }}
-          env:
-            - name: REACT_APP_AUTH_API_URL
-              value: {{ .Values.services.frontend.env.REACT_APP_AUTH_API_URL | quote }}
-            - name: REACT_APP_STREAMING_API_URL
-              value: {{ .Values.services.frontend.env.REACT_APP_STREAMING_API_URL | quote }}
-            - name: REACT_APP_STREAMING_PUBLIC_URL
-              value: {{ .Values.services.frontend.env.REACT_APP_STREAMING_PUBLIC_URL | quote }}
-            - name: REACT_APP_ADMIN_API_URL
-              value: {{ .Values.services.frontend.env.REACT_APP_ADMIN_API_URL | quote }}
-            - name: REACT_APP_CHAT_API_URL
-              value: {{ .Values.services.frontend.env.REACT_APP_CHAT_API_URL | quote }}
-            - name: REACT_APP_CHAT_SOCKET_URL
-              value: {{ .Values.services.frontend.env.REACT_APP_CHAT_SOCKET_URL | quote }}
 ---
 apiVersion: v1
 kind: Service
