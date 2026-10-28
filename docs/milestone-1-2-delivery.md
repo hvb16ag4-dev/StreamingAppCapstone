@@ -28,7 +28,7 @@ Record each decision here before implementing the affected work. Never put AWS c
 | Cost constraints and allowed node types/capacity | Minimize cost; validate locally first; use AWS only for temporary final verification, then stop/destroy resources | EKS sizing and safe testing/cleanup |
 | DNS/domain and TLS certificate | Use the generated ALB hostname for temporary verification; defer custom domain/TLS to production testing | Ingress host rules and frontend URLs |
 | MongoDB placement | Use the existing single-instance in-cluster MongoDB/PVC for temporary verification; data may be destroyed during teardown. Document a managed database option for production. | Persistence, cost, credentials, and Helm resources |
-| Existing S3 bucket/CDN | **Needed from owner**: reuse existing resources or provision new ones | Streaming/admin configuration and IAM permissions |
+| Existing S3 bucket/CDN | Create a temporary S3 bucket with Terraform for the test; no CDN unless required by validation. Delete bucket contents and bucket during approved teardown. | Streaming/admin configuration and IAM permissions |
 | Terraform state storage | Recommend remote S3 state with locking; confirm whether a state bucket/lock mechanism already exists | Safe collaboration and repeatable Terraform runs |
 | Image/deployment ownership | Current Jenkinsfile builds and pushes images; confirm whether Jenkins remains the deployment runner or a local operator runs Helm | CI credentials and deployment procedure |
 
