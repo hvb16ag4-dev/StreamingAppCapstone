@@ -26,8 +26,8 @@ Record each decision here before implementing the affected work. Never put AWS c
 | AWS region | `ap-south-1` is used by current examples; confirm | Terraform, ECR, EKS, Ingress |
 | Deployment target | Create a new dedicated VPC and EKS cluster; no existing VPC/EKS is available | Terraform scope and resource import/avoidance |
 | Cost constraints and allowed node types/capacity | Minimize cost; validate locally first; use AWS only for temporary final verification, then stop/destroy resources | EKS sizing and safe testing/cleanup |
-| DNS/domain and TLS certificate | **Needed from owner**; an ALB hostname can be used if no domain is available | Ingress host rules and frontend URLs |
-| MongoDB placement | **Needed from owner**: retain in-cluster MongoDB/PVC for this milestone, or use an external managed database | Persistence, cost, credentials, and Helm resources |
+| DNS/domain and TLS certificate | Use the generated ALB hostname for temporary verification; defer custom domain/TLS to production testing | Ingress host rules and frontend URLs |
+| MongoDB placement | Use the existing single-instance in-cluster MongoDB/PVC for temporary verification; data may be destroyed during teardown. Document a managed database option for production. | Persistence, cost, credentials, and Helm resources |
 | Existing S3 bucket/CDN | **Needed from owner**: reuse existing resources or provision new ones | Streaming/admin configuration and IAM permissions |
 | Terraform state storage | Recommend remote S3 state with locking; confirm whether a state bucket/lock mechanism already exists | Safe collaboration and repeatable Terraform runs |
 | Image/deployment ownership | Current Jenkinsfile builds and pushes images; confirm whether Jenkins remains the deployment runner or a local operator runs Helm | CI credentials and deployment procedure |
@@ -49,8 +49,8 @@ Use AWS IAM Identity Center/assumed roles or another approved short-lived creden
 - [ ] Confirm the decisions and inputs in the table above.
 - [ ] Confirm the AWS identity/role has only the required permissions and is configured locally or in Jenkins.
 - [ ] Confirm required local/agent tools: Terraform, AWS CLI, Docker, kubectl, and Helm.
-- [ ] Agree on a spending limit and a cleanup window for any temporary EKS resources.
-- [ ] Identify DNS and TLS requirements before finalizing Ingress.
+- [ ] Configure a budget alert and agree on a cleanup window for temporary EKS resources.
+- [ ] Use the generated ALB hostname for temporary verification; revisit the owner's domain and TLS certificate during production testing.
 
 **Evidence to capture:** redacted `aws sts get-caller-identity` output (account ID may be masked in public documents), tool versions, and approved design decisions.
 
