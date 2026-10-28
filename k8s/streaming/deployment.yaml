@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+ name: streaming
+ namespace: streamingapp
+
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: streaming
+
+  template:
+    metadata:
+      labels:
+        app: streaming
+
+    spec:
+      containers:
+      - name: streaming
+        image: 488347380015.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-streaming:5
+
+        imagePullPolicy: Always
+
+        ports:
+        - containerPort: 3002
+
+        envFrom:
+        - configMapRef:
+            name: streamingapp-config
+        - secretRef:
+            name: streamingapp-secret

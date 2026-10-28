@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: streamingapp-config
+  namespace: streamingapp
+
+data:
+  CLIENT_URLS: "http://localhost:3000"
+
+  AWS_REGION: "ap-south-1"
+
+  MONGO_URI: "mongodb://mongo:27017/streamingapp"
+  MONGO_DB: "streamingapp"
+
+  AUTH_PORT: "3001"
+  STREAMING_PORT: "3002"
+  ADMIN_PORT: "3003"
+  CHAT_PORT: "3004"
+
+  STREAMING_PUBLIC_URL: "http://localhost:3002"

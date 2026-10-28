@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: admin
+  template:
+    metadata:
+      labels:
+        app: admin
+    spec:
+      containers:
+      - name: admin
+        image:  "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.images.admin.repository }}:{{ .Values.images.admin.tag }}"
+        imagePullPolicy:  {{ .Values.imagePullPolicy }}
+        ports:
+        - containerPort: 3003
+        envFrom:
+        - configMapRef:
+            name: streamingapp-config
+        - secretRef:
+            name: streamingapp-secret

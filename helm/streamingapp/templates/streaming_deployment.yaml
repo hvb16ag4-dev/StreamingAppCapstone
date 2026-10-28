@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+ name: streaming
+ namespace: {{ .Values.namespace }}
+
+spec:
+  replicas: {{ .Values.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: streaming
+
+  template:
+    metadata:
+      labels:
+        app: streaming
+
+    spec:
+      containers:
+      - name: streaming
+        image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.images.streaming.repository }}:{{ .Values.images.streaming.tag }}"
+
+        imagePullPolicy: {{ .Values.imagePullPolicy }}
+
+        ports:
+        - containerPort: 3002
+
+        envFrom:
+        - configMapRef:
+            name: streamingapp-config
+        - secretRef:
+            name: streamingapp-secret

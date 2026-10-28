@@ -1,0 +1,37 @@
+namespace: streamingapp
+
+replicaCount: 2
+
+accountId: ""
+region: ap-south-1
+
+imagePullPolicy: Always
+
+images:
+  auth:
+    repository: streamingapp-auth
+    tag: ""
+
+  streaming:
+    repository: streamingapp-streaming
+    tag: ""
+
+  admin:
+    repository: streamingapp-admin
+    tag: ""
+
+  chat:
+    repository: streamingapp-chat
+    tag: ""
+
+  frontend:
+    repository: streamingapp-frontend
+    tag: ""
+
+service:
+  auth: 3001
+  streaming: 3002
+  admin: 3003
+  chat: 3004
+  frontend: 80
+  mongo: 27017

@@ -1,4 +1,4 @@
-version: "3.9"
+# version: "3.9" # remove obsolete version: line
 
 services:
   mongo:
@@ -10,6 +10,7 @@ services:
       - mongo-data:/data/db
 
   auth:
+    image: streamingapp-auth:latest
     build:
       context: ./backend/authService
     depends_on:
@@ -27,6 +28,7 @@ services:
       - "${AUTH_PORT:-3001}:3001"
 
   streaming:
+    image: streamingapp-streaming:latest
     build:
       context: ./backend
       dockerfile: streamingService/Dockerfile
@@ -47,6 +49,7 @@ services:
       - "${STREAMING_PORT:-3002}:3002"
 
   admin:
+    image: streamingapp-admin:latest
     build:
       context: ./backend
       dockerfile: adminService/Dockerfile
@@ -66,6 +69,7 @@ services:
       - "${ADMIN_PORT:-3003}:3003"
 
   chat:
+    image: streamingapp-chat:latest
     build:
       context: ./backend
       dockerfile: chatService/Dockerfile
@@ -80,6 +84,7 @@ services:
       - "${CHAT_PORT:-3004}:3004"
 
   frontend:
+    image: streamingapp-frontend:latest
     build:
       context: ./frontend
       args:

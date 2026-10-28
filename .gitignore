@@ -12,6 +12,11 @@ lerna-debug.log*
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
+#k8s
+k8s/secret.yaml
+rendered.yaml
+helm/streamingapp/template/secret.yaml
+
 # Runtime data
 pids
 *.pid
