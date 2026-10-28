@@ -24,8 +24,8 @@ Record each decision here before implementing the affected work. Never put AWS c
 |---|---|---|
 | AWS account to deploy into | **Needed from owner** (share account alias/ID only if useful; never credentials) | Resource ownership and cost estimate |
 | AWS region | `ap-south-1` is used by current examples; confirm | Terraform, ECR, EKS, Ingress |
-| Deployment target | New dedicated VPC/EKS, or existing AWS network/cluster? | Terraform scope and resource import/avoidance |
-| Cost constraints and allowed node types/capacity | **Needed from owner** | EKS sizing and safe testing/cleanup |
+| Deployment target | Create a new dedicated VPC and EKS cluster; no existing VPC/EKS is available | Terraform scope and resource import/avoidance |
+| Cost constraints and allowed node types/capacity | Minimize cost; validate locally first; use AWS only for temporary final verification, then stop/destroy resources | EKS sizing and safe testing/cleanup |
 | DNS/domain and TLS certificate | **Needed from owner**; an ALB hostname can be used if no domain is available | Ingress host rules and frontend URLs |
 | MongoDB placement | **Needed from owner**: retain in-cluster MongoDB/PVC for this milestone, or use an external managed database | Persistence, cost, credentials, and Helm resources |
 | Existing S3 bucket/CDN | **Needed from owner**: reuse existing resources or provision new ones | Streaming/admin configuration and IAM permissions |
@@ -33,6 +33,14 @@ Record each decision here before implementing the affected work. Never put AWS c
 | Image/deployment ownership | Current Jenkinsfile builds and pushes images; confirm whether Jenkins remains the deployment runner or a local operator runs Helm | CI credentials and deployment procedure |
 
 Use AWS IAM Identity Center/assumed roles or another approved short-lived credential workflow where possible. Do not paste credentials into chat or commit them. The owner should configure local AWS CLI/role access and Jenkins credentials directly in their trusted environments.
+
+### Cost and lifecycle policy
+
+- Prefer local Docker/Helm rendering and other local checks before provisioning AWS resources.
+- Treat the EKS environment as temporary evidence infrastructure: deploy only for final AWS verification, capture redacted evidence, then destroy resources that incur charges.
+- Add a budget alert before provisioning. EKS control-plane, load-balancer, NAT/networking, and storage costs may apply even when application traffic is low; AWS Free Tier should not be assumed to cover a complete EKS environment.
+- Keep Terraform inputs reusable and documented so the environment can be provisioned again. Separate temporary test sizing from any later production sizing; do not describe a single-node cost-minimized test cluster as highly available production infrastructure.
+- Before destroy, confirm the owner has saved required evidence and that no data needs to be retained. Verify cost-incurring resources are removed after cleanup.
 
 ## Work plan and completion criteria
 
