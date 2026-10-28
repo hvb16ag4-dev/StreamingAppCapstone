@@ -1,0 +1,313 @@
+{{- if .Values.mongo.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-mongo
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-mongo
+    app.kubernetes.io/part-of: streamingapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-mongo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-mongo
+    spec:
+      containers:
+        - name: mongo
+          image: {{ .Values.mongo.image | quote }}
+          ports:
+            - containerPort: {{ .Values.mongo.port }}
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
+      volumes:
+        - name: mongo-data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-mongo-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-mongo-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.mongo.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-mongo
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-mongo
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-mongo
+  ports:
+    - name: mongo
+      port: {{ .Values.mongo.port }}
+      targetPort: {{ .Values.mongo.port }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-auth
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-auth
+    app.kubernetes.io/part-of: streamingapp
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-auth
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-auth
+    spec:
+      containers:
+        - name: auth
+          image: {{ .Values.services.auth.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.services.auth.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.services.auth.env.PORT | quote }}
+            - name: MONGO_URI
+              value: {{ .Values.services.auth.env.MONGO_URI | quote }}
+            - name: JWT_SECRET
+              value: {{ .Values.services.auth.env.JWT_SECRET | quote }}
+            - name: CLIENT_URLS
+              value: {{ .Values.services.auth.env.CLIENT_URLS | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.services.auth.env.AWS_REGION | quote }}
+            - name: AWS_S3_BUCKET
+              value: {{ .Values.services.auth.env.AWS_S3_BUCKET | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-auth
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-auth
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-auth
+  ports:
+    - name: http
+      port: {{ .Values.services.auth.port }}
+      targetPort: {{ .Values.services.auth.port }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-streaming
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-streaming
+    app.kubernetes.io/part-of: streamingapp
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-streaming
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-streaming
+    spec:
+      containers:
+        - name: streaming
+          image: {{ .Values.services.streaming.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.services.streaming.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.services.streaming.env.PORT | quote }}
+            - name: MONGO_URI
+              value: {{ .Values.services.streaming.env.MONGO_URI | quote }}
+            - name: JWT_SECRET
+              value: {{ .Values.services.streaming.env.JWT_SECRET | quote }}
+            - name: CLIENT_URLS
+              value: {{ .Values.services.streaming.env.CLIENT_URLS | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.services.streaming.env.AWS_REGION | quote }}
+            - name: AWS_S3_BUCKET
+              value: {{ .Values.services.streaming.env.AWS_S3_BUCKET | quote }}
+            - name: AWS_CDN_URL
+              value: {{ .Values.services.streaming.env.AWS_CDN_URL | quote }}
+            - name: STREAMING_PUBLIC_URL
+              value: {{ .Values.services.streaming.env.STREAMING_PUBLIC_URL | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-streaming
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-streaming
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-streaming
+  ports:
+    - name: http
+      port: {{ .Values.services.streaming.port }}
+      targetPort: {{ .Values.services.streaming.port }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-admin
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-admin
+    app.kubernetes.io/part-of: streamingapp
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-admin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-admin
+    spec:
+      containers:
+        - name: admin
+          image: {{ .Values.services.admin.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.services.admin.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.services.admin.env.PORT | quote }}
+            - name: MONGO_URI
+              value: {{ .Values.services.admin.env.MONGO_URI | quote }}
+            - name: JWT_SECRET
+              value: {{ .Values.services.admin.env.JWT_SECRET | quote }}
+            - name: CLIENT_URLS
+              value: {{ .Values.services.admin.env.CLIENT_URLS | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.services.admin.env.AWS_REGION | quote }}
+            - name: AWS_S3_BUCKET
+              value: {{ .Values.services.admin.env.AWS_S3_BUCKET | quote }}
+            - name: AWS_CDN_URL
+              value: {{ .Values.services.admin.env.AWS_CDN_URL | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-admin
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-admin
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-admin
+  ports:
+    - name: http
+      port: {{ .Values.services.admin.port }}
+      targetPort: {{ .Values.services.admin.port }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-chat
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-chat
+    app.kubernetes.io/part-of: streamingapp
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-chat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-chat
+    spec:
+      containers:
+        - name: chat
+          image: {{ .Values.services.chat.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.services.chat.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.services.chat.env.PORT | quote }}
+            - name: MONGO_URI
+              value: {{ .Values.services.chat.env.MONGO_URI | quote }}
+            - name: JWT_SECRET
+              value: {{ .Values.services.chat.env.JWT_SECRET | quote }}
+            - name: CLIENT_URLS
+              value: {{ .Values.services.chat.env.CLIENT_URLS | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-chat
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-chat
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-chat
+  ports:
+    - name: http
+      port: {{ .Values.services.chat.port }}
+      targetPort: {{ .Values.services.chat.port }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-frontend
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-frontend
+    app.kubernetes.io/part-of: streamingapp
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: {{ .Values.services.frontend.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.services.frontend.port }}
+          env:
+            - name: REACT_APP_AUTH_API_URL
+              value: {{ .Values.services.frontend.env.REACT_APP_AUTH_API_URL | quote }}
+            - name: REACT_APP_STREAMING_API_URL
+              value: {{ .Values.services.frontend.env.REACT_APP_STREAMING_API_URL | quote }}
+            - name: REACT_APP_STREAMING_PUBLIC_URL
+              value: {{ .Values.services.frontend.env.REACT_APP_STREAMING_PUBLIC_URL | quote }}
+            - name: REACT_APP_ADMIN_API_URL
+              value: {{ .Values.services.frontend.env.REACT_APP_ADMIN_API_URL | quote }}
+            - name: REACT_APP_CHAT_API_URL
+              value: {{ .Values.services.frontend.env.REACT_APP_CHAT_API_URL | quote }}
+            - name: REACT_APP_CHAT_SOCKET_URL
+              value: {{ .Values.services.frontend.env.REACT_APP_CHAT_SOCKET_URL | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-frontend
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-frontend
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-frontend
+  ports:
+    - name: http
+      port: {{ .Values.services.frontend.port }}
+      targetPort: {{ .Values.services.frontend.port }}

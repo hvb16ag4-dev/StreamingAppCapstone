@@ -81,6 +81,18 @@ web_modules/
 .env.production.local
 .env.local
 
+# Terraform state and generated local tooling artifacts
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.kubeconfig
+kubeconfig*
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

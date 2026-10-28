@@ -115,11 +115,11 @@ Update this table with actual command output summaries and dates. Do not record 
 
 | Date | Milestone/task | Command or check | Result | Evidence |
 |---|---|---|---|---|
-| Not run | Baseline | Terraform files present | No `.tf`/`.tfvars` files found | Repository inspection |
-| Not run | Milestone 2 | Helm chart includes Ingress | No Ingress template found | Repository inspection |
-| Not run | Terraform | `terraform fmt -check` / `terraform validate` | Pending tooling/configuration | — |
-| Not run | Helm | `helm lint` / `helm template` | Pending tooling/configuration | — |
-| Not run | EKS deploy | Rollout and endpoint smoke tests | Pending infrastructure | — |
+| 2026-10-28 | Baseline | Repository inspection for Terraform and Helm prerequisites | Terraform and Helm scaffolding now exist in the repo; AWS account credentials are still required for live EKS creation | Local repo review |
+| 2026-10-28 | Terraform | `terraform init` + `terraform fmt` + `terraform validate` | Passed locally | Local terminal validation |
+| 2026-10-28 | Helm | `helm lint ./helm/streamingapp` + `helm template ./helm/streamingapp` | Passed locally | Local terminal validation |
+| 2026-10-28 | AWS identity | `aws sts get-caller-identity` | Failed: `NoCredentials` | Local AWS CLI check |
+| Pending | EKS deploy | Rollout and endpoint smoke tests | Pending AWS account access and approval | — |
 
 ## Challenges and fixes
 
@@ -127,8 +127,9 @@ Add dated entries when a challenge is observed and resolved. Include the failing
 
 | Date | Challenge/symptom | Root cause | Fix | Verification |
 |---|---|---|---|---|
-| Pending deployment | No Terraform source currently exists | Infrastructure has not yet been codified in the repository | Planned in Task 1 | Pending |
-| Pending deployment | Helm chart has no Ingress resource | Ingress routing/controller integration is not yet configured in the chart | Planned in Task 3 | Pending |
+| 2026-10-28 | Terraform scaffolding was missing locally | The repo started without `.tf` files or an EKS foundation definition | Added a Terraform config for VPC, EKS, IAM, node groups, and ECR repositories | `terraform validate` passed locally |
+| 2026-10-28 | Helm chart had no ingress and no configured app wiring | The repo had no chart/Ingress routing for EKS traffic | Added Helm chart with Deployment/Service templates and ingress routes for frontend and service APIs | `helm lint` and `helm template` passed locally |
+| 2026-10-28 | AWS deployment could not proceed from this environment | The AWS CLI is not authenticated in this machine | Configure AWS IAM Identity Center / role-based credentials then re-run `terraform plan` and `helm upgrade --install` | Pending AWS login and AWS approval |
 
 ## Git checkpoint policy
 

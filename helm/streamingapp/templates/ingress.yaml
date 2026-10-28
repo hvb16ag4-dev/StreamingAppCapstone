@@ -1,0 +1,58 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}
+  annotations:
+{{- range $key, $value := .Values.ingress.annotations }}
+    {{ $key }}: {{ $value | quote }}
+{{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-auth
+                port:
+                  number: {{ .Values.services.auth.port }}
+          - path: /api/streaming
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-streaming
+                port:
+                  number: {{ .Values.services.streaming.port }}
+          - path: /api/admin
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-admin
+                port:
+                  number: {{ .Values.services.admin.port }}
+          - path: /api/chat
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-chat
+                port:
+                  number: {{ .Values.services.chat.port }}
+          - path: /socket.io
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-chat
+                port:
+                  number: {{ .Values.services.chat.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-frontend
+                port:
+                  number: {{ .Values.services.frontend.port }}
+{{- end }}
