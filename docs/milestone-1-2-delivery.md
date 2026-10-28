@@ -123,6 +123,7 @@ Update this table with actual command output summaries and dates. Do not record 
 | 2026-10-28 | AWS identity | `aws sts get-caller-identity` | Succeeded; identity is an IAM user. No account ID/ARN recorded here. | Local AWS CLI check |
 | 2026-10-28 | Terraform/Helm review | Review of chart defaults and Terraform inputs | Fixed MongoDB service DNS, JWT secret reference, frontend same-origin build defaults, supported EKS version, scoped public API CIDR, and ALB controller policy | Terraform fmt/validate and Helm lint/template passed |
 | 2026-10-28 | Frontend image | `docker build --tag streamingapp-frontend:validation ./frontend` | Passed | Local Docker build |
+| 2026-10-28 | Local app stack | `docker compose up --build -d` + service health requests | Auth, streaming, admin, chat, and frontend images built; public `mongo:6` image pulled; all four backend health endpoints and frontend returned HTTP 200 | Local Docker/HTTP smoke test |
 | Pending | AWS plan | `terraform plan` with approved identity and trusted CIDR | Not run; migrate from IAM-user credentials and supply trusted API CIDR first | — |
 | Pending | EKS deploy | Rollout and endpoint smoke tests | Pending approved SSO/role access, trusted CIDR, controller installation, and owner approval | — |
 
@@ -134,6 +135,7 @@ Add dated entries when a challenge is observed and resolved. Include the failing
 |---|---|---|---|---|
 | 2026-10-28 | Terraform scaffolding was missing locally | The repo started without `.tf` files or an EKS foundation definition | Added a Terraform config for VPC, EKS, IAM, node groups, and ECR repositories | `terraform validate` passed locally |
 | 2026-10-28 | Helm chart had no ingress and no configured app wiring | The repo had no chart/Ingress routing for EKS traffic | Added Helm chart with Deployment/Service templates and ingress routes for frontend and service APIs | `helm lint` and `helm template` passed locally |
+| 2026-10-28 | Auth image could not install `bcrypt` in the Alpine build | The prebuilt native binary download failed and the image had no source-build toolchain | Install Python, make, and g++ for dependency installation, then remove the build tools from the resulting image | Auth image rebuilt; Compose stack started and health checks passed |
 | 2026-10-28 | AWS deployment is not ready to proceed | CLI identity check succeeds, but current credentials are IAM-user based and no trusted EKS API CIDR has been approved | Configure the dedicated IAM Identity Center permission set/role and supply the operator egress CIDR; then review a plan before apply | AWS identity check passed; plan intentionally not run |
 
 ## Git checkpoint policy

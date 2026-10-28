@@ -15,6 +15,32 @@ Do not create a long-lived `terraform_user` IAM user or access key. An AWS admin
 
 The human/deployment permission set is separate from the EKS cluster role, node role, and in-cluster AWS Load Balancer Controller role. Do not attach application deployment permissions to a general-purpose IAM user. Jenkins, if used later, should use a separate short-lived role/OIDC integration.
 
+## Local test before AWS
+
+The backend images are not checked into Git or automatically present in Docker. Build them locally from the Compose configuration:
+
+```bash
+docker compose build auth streaming admin chat frontend
+docker compose pull mongo
+docker image ls
+docker compose up -d
+docker compose ps
+```
+
+Compose builds the five application images and pulls the public `mongo:6` image. MongoDB does not need a custom application image or an ECR repository for this temporary setup. The Helm chart also pulls `mongo:6` from Docker Hub and stores data on its PVC. Use a managed database rather than this single MongoDB pod for production.
+
+Check the local services:
+
+```bash
+curl -fsS http://localhost:3001/health
+curl -fsS http://localhost:3002/api/health
+curl -fsS http://localhost:3003/api/health
+curl -fsS http://localhost:3004/api/health
+curl -I http://localhost:3000
+```
+
+All five HTTP checks returned success on 2026-10-28. The frontend is at `http://localhost:3000`. Test registration/login, catalogue browsing, and chat from two browser sessions. S3 upload/playback is not expected to work until the bucket and workload permissions are configured. `docker compose down` stops the local stack; do not add `-v` unless you intend to delete its MongoDB data.
+
 ### Local validation completed
 
 The project has been validated locally without applying AWS changes:
@@ -114,6 +140,7 @@ Current validation status:
 
 - Terraform: validated locally (`terraform validate` passed)
 - Helm: lint/template passed locally (`helm lint` and `helm template` passed)
+- Local application stack: all five app images built; `mongo:6` pulled; backend health checks and frontend returned HTTP 200
 - AWS CLI identity: authenticated; the current credential type is an IAM user, so SSO/role-based access should be configured before provisioning
 - EKS apply/endpoint verification: pending AWS account access and owner approval
 
