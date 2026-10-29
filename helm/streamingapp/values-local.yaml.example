@@ -1,0 +1,39 @@
+replicaCount: 1
+
+mongo:
+  enabled: true
+  image: mongo:6
+  port: 27017
+  storage: 1Gi
+
+secrets:
+  existingSecret: streamingapp-runtime
+
+services:
+  auth:
+    image: streamingappcapstone-auth:latest
+    env:
+      CLIENT_URLS: "http://localhost:3000"
+      AWS_S3_BUCKET: ""
+  streaming:
+    image: streamingappcapstone-streaming:latest
+    env:
+      CLIENT_URLS: "http://localhost:3000"
+      AWS_S3_BUCKET: ""
+      AWS_CDN_URL: ""
+      STREAMING_PUBLIC_URL: "http://localhost:3002"
+  admin:
+    image: streamingappcapstone-admin:latest
+    env:
+      CLIENT_URLS: "http://localhost:3000"
+      AWS_S3_BUCKET: ""
+      AWS_CDN_URL: ""
+  chat:
+    image: streamingappcapstone-chat:latest
+    env:
+      CLIENT_URLS: "http://localhost:3000"
+  frontend:
+    image: streamingapp-frontend:k8s-local
+
+ingress:
+  enabled: false

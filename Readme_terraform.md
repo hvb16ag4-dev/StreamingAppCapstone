@@ -17,6 +17,8 @@ The human/deployment permission set is separate from the EKS cluster role, node 
 
 ## Local test before AWS
 
+For the full local Kubernetes test flow (Docker Desktop or Minikube), image configuration, environment variables, commands, and cleanup, see [docs/local-kubernetes-testing.md](./docs/local-kubernetes-testing.md).
+
 The backend images are not checked into Git or automatically present in Docker. Build them locally from the Compose configuration:
 
 ```bash
