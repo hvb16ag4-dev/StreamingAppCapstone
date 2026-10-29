@@ -1,2 +1,6 @@
-# Remote state for prod. Bucket is created once by a bootstrap step (versioned + encrypted).
+# Remote state for dev. Bucket is created once by a bootstrap step (versioned + encrypted).
 bucket       = "capstone-terraform-state-<account-id>"
+key          = "capstone-data-platform/prod/terraform.tfstate"
+region       = "ap-south-1"
+encrypt      = true
+use_lockfile = true   # S3-native state locking (Terraform >= 1.10); use dynamodb_table on older versions
