@@ -4,6 +4,32 @@ This guide deploys the current `feature_terraform` Helm chart to a local Kuberne
 
 The local Kubernetes test uses the same five app images built for Compose and pulls the official `mongo:6` image. It disables the chart's AWS ALB Ingress and uses `kubectl port-forward` for local browser/API access. It does not test S3 upload/playback or AWS IAM roles.
 
+## One-command deployment helper
+
+From the repository root, run:
+
+```bash
+chmod +x scripts/k8s-deploy.sh
+./scripts/k8s-deploy.sh local
+```
+
+This checks Docker Desktop Kubernetes, rebuilds the four backend images and a frontend image with localhost API URLs, ensures the namespace and runtime Secret exist, upgrades the local Helm release, waits for Deployments/PVC readiness, starts managed port-forwards, and checks all five HTTP endpoints. Open `http://localhost:3000` for screenshots. The script reuses the existing JWT Secret and does not print its value.
+
+When the port-forwards stop but the release still exists, run `./scripts/k8s-deploy.sh local` again; it reconciles the release and restarts the tunnels. Other helpers:
+
+```bash
+./scripts/k8s-deploy.sh status
+./scripts/k8s-deploy.sh stop-local
+```
+
+`stop-local` only stops the managed port-forwards. To remove the local Helm release, run `helm uninstall streamingapp --namespace streamingapp`; removing the namespace also deletes its local MongoDB PVC/data.
+
+For Minikube, select its context when running the helper:
+
+```bash
+KUBE_CONTEXT=minikube ./scripts/k8s-deploy.sh local
+```
+
 ## 1. Enable a local Kubernetes cluster
 
 ### Option A — Docker Desktop Kubernetes (recommended)
@@ -194,6 +220,8 @@ The five `kubectl port-forward` commands above were started and all HTTP checks 
 
 During first startup, backend containers restarted while MongoDB was still initializing; all backend logs subsequently confirmed a MongoDB connection and all Deployments became Ready. For a production-quality rollout, add probes and improve startup/readiness handling so health is not reported before database dependencies are available.
 
+On 2026-10-29, after the port-forward tunnels had stopped, `scripts/k8s-deploy.sh local` successfully rebuilt/reconciled the local release, restarted all five tunnels, and rechecked the same five HTTP 200 endpoints. `scripts/k8s-deploy.sh status` also passed afterward.
+
 ## 5. Reset the local test
 
 Stop the port-forward commands with Ctrl+C. Remove the release:
@@ -213,6 +241,22 @@ Only delete the namespace if the local MongoDB test data is disposable. Docker C
 ## 6. Move from local Kubernetes to AWS
 
 Once local Kubernetes passes, use the same chart but substitute ECR image URIs, configure approved IAM Identity Center access, give Terraform the approved trusted API CIDR, and create the runtime Secret in EKS. Install AWS Load Balancer Controller and the required storage provisioner/CSI driver before depending on ALB ingress and Mongo PVC provisioning. Review the Terraform plan and costs before applying. Do not copy local `.env`, local Kubernetes Secrets, or Docker credentials to AWS.
+
+After an approved operator has separately provisioned the cluster, ECR repositories, ALB controller, and default EBS CSI StorageClass, the helper can build/tag/push app images and deploy them:
+
+```bash
+aws sso login --profile streamingapp
+export AWS_PROFILE=streamingapp
+export EXPECTED_AWS_ACCOUNT_ID=YOUR_APPROVED_ACCOUNT_ID
+export TRUSTED_EKS_API_CIDR=YOUR_TRUSTED_PUBLIC_IP/32
+export AWS_REGION=ap-south-1
+export EKS_CLUSTER_NAME=streamingapp-eks
+./scripts/k8s-deploy.sh aws
+```
+
+The script checks that the SSO/assumed-role identity matches the expected account, the cluster allows the supplied trusted CIDR, the five ECR repositories exist, the AWS Load Balancer Controller rollout is ready, and a default StorageClass exists. It asks for the literal confirmation `deploy` before it builds/pushes images and performs the Helm release. **It does not run `terraform apply`**; Terraform must be planned, reviewed, and applied separately. The AWS mode creates a generated JWT Kubernetes Secret only if one does not exist and waits for the ALB DNS name before updating CORS/public streaming URLs. It currently uses HTTP, not TLS. AWS resources incur costs.
+
+Do not use the generated in-cluster Secret workflow as a production secret-management design. For longer-lived environments, configure external secret management/rotation and remote Terraform state with locking first.
 
 ## Comparison: `feature_orchestration_scaling`
 

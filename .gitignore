@@ -95,6 +95,7 @@ kubeconfig*
 
 # Local-only project history and working memory
 /memory/
+/.local-k8s/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
