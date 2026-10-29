@@ -41,7 +41,7 @@ curl -fsS http://localhost:3004/api/health
 curl -I http://localhost:3000
 ```
 
-All five HTTP checks returned success on 2026-10-28. The frontend is at `http://localhost:3000`. Test registration/login, catalogue browsing, and chat from two browser sessions. S3 upload/playback is not expected to work until the bucket and workload permissions are configured. `docker compose down` stops the local stack; do not add `-v` unless you intend to delete its MongoDB data.
+All five HTTP checks returned success on 2026-10-28. A separate local Kubernetes deployment was also verified on 2026-10-29; see [docs/local-kubernetes-testing.md](./docs/local-kubernetes-testing.md). The frontend is at `http://localhost:3000` while its port-forward is active. Test registration/login, catalogue browsing, and chat from two browser sessions. S3 upload/playback is not expected to work until the bucket and workload permissions are configured. `docker compose down` stops the local stack; do not add `-v` unless you intend to delete its MongoDB data.
 
 ### Local validation completed
 

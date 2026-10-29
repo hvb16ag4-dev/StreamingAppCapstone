@@ -178,6 +178,22 @@ kubectl -n streamingapp logs deployment/<deployment-name> --all-containers=true
 
 `ImagePullBackOff` usually means the local image name/tag is wrong or the cluster cannot see the local image. `Pending` Mongo PVC commonly means there is no default StorageClass. Backend startup errors should be checked for Mongo readiness and the generated JWT Secret.
 
+### Verified local Kubernetes run
+
+On 2026-10-29, Docker Desktop Kubernetes was verified from WSL using the `docker-desktop` context. The single cluster node was `Ready`, and the default `standard` StorageClass provisioned the Mongo PVC. The chart installed successfully from `values-local.yaml.example`; all six Deployments (MongoDB, four backend services, frontend) reached `1/1` Ready, and the PVC became `Bound`.
+
+The five `kubectl port-forward` commands above were started and all HTTP checks passed:
+
+| Endpoint | Result |
+|---|---|
+| `http://localhost:3000` (frontend) | HTTP 200 |
+| `http://localhost:3001/health` (auth) | HTTP 200 |
+| `http://localhost:3002/api/health` (streaming) | HTTP 200 |
+| `http://localhost:3003/api/health` (admin) | HTTP 200 |
+| `http://localhost:3004/api/health` (chat) | HTTP 200 |
+
+During first startup, backend containers restarted while MongoDB was still initializing; all backend logs subsequently confirmed a MongoDB connection and all Deployments became Ready. For a production-quality rollout, add probes and improve startup/readiness handling so health is not reported before database dependencies are available.
+
 ## 5. Reset the local test
 
 Stop the port-forward commands with Ctrl+C. Remove the release:
