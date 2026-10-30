@@ -1,6 +1,6 @@
 # Terraform and Helm deployment guide
 
-This repository contains a temporary-validation Terraform foundation and Helm chart for deploying StreamingApp on Amazon EKS. Local syntax/render checks pass; this is not evidence of a live AWS deployment.
+This repository contains Terraform/Helm configuration for local DEV and separate-account UAT/PROD EKS environments. Configuration and safe deployment steps are in [docs/environment-configuration.md](./docs/environment-configuration.md). Local syntax/render checks do not imply that AWS resources have been created.
 
 ## Terraform
 
@@ -8,16 +8,18 @@ This repository contains a temporary-validation Terraform foundation and Helm ch
 
 - AWS CLI configured for the approved account/profile through IAM Identity Center (recommended) or a short-lived assumed role
 - Terraform 1.5 or newer
-- A budget alert and owner approval for the expected EKS, EC2, EBS, and load-balancer costs
+- Separate approved IAM Identity Center profiles for the UAT and PROD AWS accounts
+- A budget alert and owner approval for expected EKS, EC2, EBS, S3, and load-balancer costs
 - A trusted operator/CI egress IPv4 CIDR for the EKS public API endpoint
 
 Do not create a long-lived `terraform_user` IAM user or access key. An AWS administrator should create an IAM Identity Center permission set, assign it to the operator (directly or through a team group), and grant only the needed VPC, EKS, ECR, and IAM actions. The permission set must allow `iam:PassRole` only for the specific EKS cluster and node roles created by this configuration, with the appropriate AWS service conditions. Terraform also creates the OIDC provider and the AWS Load Balancer Controller IAM role/policy. Review the exact actions and permissions in `terraform/` before provisioning.
 
-The human/deployment permission set is separate from the EKS cluster role, node role, and in-cluster AWS Load Balancer Controller role. Do not attach application deployment permissions to a general-purpose IAM user. Jenkins, if used later, should use a separate short-lived role/OIDC integration.
+The human/deployment permission set is separate from the EKS cluster role, node role, AWS Load Balancer Controller role, and app media-access role. The app accesses only its environment's S3 bucket through IRSA; it does not receive long-lived AWS credentials. Jenkins, if used later, should use a separate short-lived role/OIDC integration.
 
 ## Local test before AWS
 
-For the full local Kubernetes test flow (Docker Desktop or Minikube), image configuration, environment variables, commands, and cleanup, see [docs/local-kubernetes-testing.md](./docs/local-kubernetes-testing.md).
+For the local Kubernetes + UAT-account S3 test flow (Docker Desktop or Minikube), image configuration, environment variables, commands, and cleanup, see [docs/local-kubernetes-testing.md](./docs/local-kubernetes-testing.md).
+For environment separation, Docker Hub/ECR image configuration, AWS account setup, Terraform variables, and promotion steps, see [docs/environment-configuration.md](./docs/environment-configuration.md).
 The one-command local deployment/recovery helper is `./scripts/k8s-deploy.sh local`; for AWS, use `./scripts/k8s-deploy.sh aws` only after the cluster prerequisites in that guide are satisfied.
 
 The backend images are not checked into Git or automatically present in Docker. Build them locally from the Compose configuration:
@@ -42,49 +44,44 @@ curl -fsS http://localhost:3004/api/health
 curl -I http://localhost:3000
 ```
 
-All five HTTP checks returned success on 2026-10-28. A separate local Kubernetes deployment was also verified on 2026-10-29; see [docs/local-kubernetes-testing.md](./docs/local-kubernetes-testing.md). The frontend is at `http://localhost:3000` while its port-forward is active. Test registration/login, catalogue browsing, and chat from two browser sessions. S3 upload/playback is not expected to work until the bucket and workload permissions are configured. `docker compose down` stops the local stack; do not add `-v` unless you intend to delete its MongoDB data.
+All five HTTP checks passed in earlier local runs. The new S3-backed local configuration requires the UAT bucket and role to be provisioned first; see [docs/local-kubernetes-testing.md](./docs/local-kubernetes-testing.md). The frontend is at `http://localhost:3000` while its port-forward is active. Test registration/login, chat, video upload, and playback. `docker compose down` stops the Compose stack; do not add `-v` unless you intend to delete its MongoDB data.
 
 ### Local validation completed
 
-The project has been validated locally without applying AWS changes:
+The Terraform syntax can be checked locally without applying AWS changes:
 
 ```bash
 cd terraform
-terraform init
+terraform init -backend=false
 terraform fmt -check
 terraform validate
 ```
 
-These checks do not contact AWS or create resources. Before planning, configure AWS SSO and verify the identity with `aws sts get-caller-identity`.
+These checks do not create resources. For any plan or apply, first bootstrap the remote state bucket and lock table in the target account as described in [docs/environment-configuration.md](./docs/environment-configuration.md), then initialize with that environment's backend config. Before planning, configure the correct account's AWS SSO profile and verify it with `aws sts get-caller-identity --profile <profile>`.
 
 ### Plan and apply
 
-```bash
-cd terraform
-terraform plan \
-  -var='cluster_public_access_cidrs=["YOUR_TRUSTED_PUBLIC_IP/32"]'
-terraform apply \
-  -var='cluster_public_access_cidrs=["YOUR_TRUSTED_PUBLIC_IP/32"]'
-```
-
-Replace the example CIDR with the trusted operator or deployment runner's actual stable egress CIDR. The EKS endpoint rejects a world-open CIDR. Review the full plan and cost estimate before approving `apply`.
+Use `terraform/environments/uat.tfvars.example` and `prod.tfvars.example` as separate environment inputs. Replace the documentation CIDR before planning. DEV is local and is not provisioned with Terraform. UAT and PROD require separate remote state buckets and keys; the S3 backend is configured per invocation using an ignored `.tfbackend` file.
 
 The configuration provisions:
 
 - VPC, public subnets, internet gateway, and route tables
 - EKS cluster and managed node group
-- IAM roles for the cluster, node group, and AWS Load Balancer Controller
-- ECR repositories for the auth, streaming, admin, chat, and frontend images
+- IAM roles for the cluster, node group, AWS Load Balancer Controller, and app S3 access
+- Immutable ECR repositories for each environment's auth, streaming, admin, chat, and frontend images
+- A private, encrypted, versioned media S3 bucket per account/environment
 
 The Kubernetes version default is `1.37`, the latest version listed in standard support by the [EKS Kubernetes version lifecycle documentation](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html) at the time of this update. Recheck supported versions before applying.
 
 Important:
 
 - Do not commit Terraform state, kubeconfig files, or generated AWS credentials.
-- AWS CLI authentication currently succeeds, but it is using IAM-user credentials rather than IAM Identity Center. Migrate to the approved short-lived SSO/assumed-role flow before provisioning; do not create another long-lived `terraform_user` access key.
+- Verify the active AWS identity before provisioning. If the CLI uses an IAM user, migrate to the approved short-lived SSO/assumed-role flow; do not create a long-lived `terraform_user` access key.
 - No AWS plan or apply has been run, and the EKS cluster has not been created or validated in AWS.
 - Supply the actual trusted operator/CI egress CIDR before planning; no CIDR is guessed or committed in this repository.
-- The Terraform backend is local by default. For team use, agree on a secured remote S3 backend with locking before `terraform init`; do not move or replace state casually.
+- The Terraform S3 backend requires a pre-created, versioned, public-access-blocked state bucket and a DynamoDB lock table in each target account. Backend example files contain placeholders and must be copied/edited before initialization.
+- Control-plane log types are enabled, but application metrics/dashboards/alerts and CloudWatch Container Insights/Prometheus configuration are not yet implemented.
+- EKS worker nodes currently use public subnets. Review private nodes/NAT/endpoints, managed MongoDB and backups, TLS/DNS, and monitoring before any production apply.
 - The bundled controller policy is sourced from the [AWS Load Balancer Controller upstream policy](https://github.com/kubernetes-sigs/aws-load-balancer-controller/blob/main/docs/install/iam_policy.json). Review/update it when upgrading the controller.
 
 ## Helm
@@ -97,26 +94,11 @@ helm lint ./helm/streamingapp
 helm template ./helm/streamingapp
 ```
 
-The chart lint and template render succeeded locally. The chart deploys one MongoDB instance, the four backend services, the frontend, and an ALB ingress. It expects the AWS Load Balancer Controller to be installed in the cluster and the matching IAM role from Terraform to be annotated on its Kubernetes service account. Install the controller using the official AWS instructions before relying on the Ingress.
+The chart includes MongoDB, the four backend services, the frontend, and an ALB ingress. It creates an app service account; in EKS, annotate it with that account's Terraform `app_media_access_role_arn` output. Install the AWS Load Balancer Controller and storage driver in EKS before relying on Ingress or PVCs.
 
-### Prepare secrets and install
+### Deploy
 
-```bash
-aws eks update-kubeconfig --region ap-south-1 --name streamingapp-eks
-kubectl create namespace streamingapp
-kubectl -n streamingapp create secret generic streamingapp-runtime \
-  --from-literal=jwt-secret="$(openssl rand -hex 32)"
-
-helm upgrade --install streamingapp ./helm/streamingapp \
-  --namespace streamingapp \
-  --set-string services.auth.image=ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-auth:TAG \
-  --set-string services.streaming.image=ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-streaming:TAG \
-  --set-string services.admin.image=ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-admin:TAG \
-  --set-string services.chat.image=ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-chat:TAG \
-  --set-string services.frontend.image=ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-frontend:TAG
-```
-
-Do not place the JWT value in Helm values, source control, or terminal logs. The chart references the pre-created Kubernetes Secret named by `secrets.existingSecret` (`streamingapp-runtime` by default).
+Use `./scripts/k8s-deploy.sh local` for local DEV, or follow the account/profile-specific UAT/PROD procedure in [docs/environment-configuration.md](./docs/environment-configuration.md). The AWS helper requires this environment's ECR prefix, media bucket, and IRSA role outputs; it uses a unique immutable image tag and does not run Terraform apply.
 
 The frontend image is a static React build. Its Dockerfile defaults API and Socket.IO URLs to same-origin paths (`/api`, `/api/admin`, `/api/chat`, `/`), and those values must be present at image build time; setting React environment variables on a running Nginx container does not rewrite the bundle. Override Docker build arguments only when using a different routing design.
 
@@ -133,18 +115,15 @@ helm upgrade streamingapp ./helm/streamingapp \
   --set-string services.chat.env.CLIENT_URLS=http://your-alb-dns-name.elb.amazonaws.com
 ```
 
-The current Terraform configuration does not create an S3 bucket or an application-specific IAM role/policy for S3. Admin uploads and S3-backed playback therefore remain unconfigured until the owner selects the bucket and the app's least-privilege S3 access is added. Do not copy AWS access keys into Helm values; prefer workload identity/IRSA.
-
-The chart's single MongoDB/PVC setup is for temporary validation only. Use a managed database and proper backup/retention design for production. The public ALB is also billable; destroy temporary resources only after evidence and data retention are confirmed.
+The local Kubernetes profile accesses an isolated S3 bucket in the UAT account using a one-hour role session; the Terraform UAT configuration creates that bucket only when local DEV access is explicitly enabled. The AWS Terraform root also creates a separate UAT application bucket and a separate PROD bucket with public access blocked and least-privilege app roles. The chart's single MongoDB/PVC setup remains for temporary validation only. Use a managed database and proper backup/retention design for production.
 
 ## Deployment status
 
 Current validation status:
 
-- Terraform: validated locally (`terraform validate` passed)
-- Helm: lint/template passed locally (`helm lint` and `helm template` passed)
+- Terraform: syntax formatting/checks are local-only; no AWS plan/apply has been run
+- Helm: base and local values lint/template passed locally
 - Local application stack: all five app images built; `mongo:6` pulled; backend health checks and frontend returned HTTP 200
-- AWS CLI identity: authenticated; the current credential type is an IAM user, so SSO/role-based access should be configured before provisioning
-- EKS apply/endpoint verification: pending AWS account access and owner approval
+- AWS account resources: not created; separate UAT and PROD account profiles, state backends, CIDRs, cost approval, and production hardening are pending
 
 This means the repository is locally validated but not yet deployed or verified against a live EKS cluster. Confirm the permission set, budget, public API CIDR, and reviewed plan before applying.

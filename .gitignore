@@ -85,6 +85,8 @@ web_modules/
 .terraform/
 *.tfstate
 *.tfstate.*
+terraform/environments/*.tfvars
+terraform/backend/*.s3.tfbackend
 crash.log
 override.tf
 override.tf.json

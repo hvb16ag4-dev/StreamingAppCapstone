@@ -44,6 +44,58 @@ ensure_runtime_secret() {
   printf 'Created Kubernetes Secret %s/streamingapp-runtime (value not displayed)\n' "$NAMESPACE"
 }
 
+ensure_local_aws_secret() {
+  local context="$1"
+  local secret_dir
+  local source_account
+  local credentials
+  local access_key_id
+  local secret_access_key
+  local session_token
+
+  [[ -n "${AWS_PROFILE:-}" ]] || die "Set AWS_PROFILE to the UAT IAM Identity Center profile"
+  [[ -n "${EXPECTED_AWS_ACCOUNT_ID:-}" ]] || die "Set EXPECTED_AWS_ACCOUNT_ID to the UAT account ID"
+  [[ -n "${LOCAL_S3_ROLE_ARN:-}" ]] || die "Set LOCAL_S3_ROLE_ARN to the Terraform local_dev_media_access_role_arn output"
+  [[ -n "${AWS_S3_BUCKET:-}" ]] || die "Set AWS_S3_BUCKET to the Terraform local_dev_media_bucket_name output"
+  AWS_REGION="${AWS_REGION:-ap-south-1}"
+
+  source_account="$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query Account --output text)" \
+    || die "Unable to authenticate with AWS_PROFILE; run aws sso login first"
+  [[ "$source_account" == "$EXPECTED_AWS_ACCOUNT_ID" ]] \
+    || die "AWS_PROFILE is authenticated to a different account than EXPECTED_AWS_ACCOUNT_ID"
+  credentials="$(aws sts assume-role --profile "$AWS_PROFILE" \
+    --role-arn "$LOCAL_S3_ROLE_ARN" \
+    --role-session-name streamingapp-local-dev \
+    --duration-seconds 3600 \
+    --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+    --output text)" || die "Unable to assume the restricted local DEV S3 role"
+  IFS=$'\t' read -r access_key_id secret_access_key session_token <<< "$credentials"
+  [[ -n "$access_key_id" && -n "$secret_access_key" && -n "$session_token" ]] \
+    || die "AWS returned incomplete temporary credentials"
+  AWS_ACCESS_KEY_ID="$access_key_id" \
+    AWS_SECRET_ACCESS_KEY="$secret_access_key" \
+    AWS_SESSION_TOKEN="$session_token" \
+    aws s3api head-bucket --bucket "$AWS_S3_BUCKET" --region "$AWS_REGION" \
+    || die "The assumed local DEV role cannot access AWS_S3_BUCKET"
+
+  secret_dir="$(mktemp -d)"
+  chmod 700 "$secret_dir"
+  trap 'rm -rf "$secret_dir"' RETURN
+  printf '%s' "$access_key_id" > "$secret_dir/access-key-id"
+  printf '%s' "$secret_access_key" > "$secret_dir/secret-access-key"
+  printf '%s' "$session_token" > "$secret_dir/session-token"
+  kubectl --context "$context" --namespace "$NAMESPACE" create secret generic \
+    streamingapp-object-store \
+    --from-file="access-key-id=$secret_dir/access-key-id" \
+    --from-file="secret-access-key=$secret_dir/secret-access-key" \
+    --from-file="session-token=$secret_dir/session-token" \
+    --dry-run=client -o yaml | kubectl --context "$context" --namespace "$NAMESPACE" \
+      apply --server-side --force-conflicts -f -
+  rm -rf "$secret_dir"
+  trap - RETURN
+  printf 'Updated Kubernetes Secret %s/streamingapp-object-store with short-lived role credentials (values not displayed)\n' "$NAMESPACE"
+}
+
 check_local_endpoints() {
   local endpoint
   local code
@@ -58,9 +110,17 @@ check_local_endpoints() {
   for endpoint in "${endpoints[@]}"; do
     local url="${endpoint%%|*}"
     local name="${endpoint##*|}"
-    code="$(curl --max-time 10 -sS -o /dev/null -w '%{http_code}' "$url")" \
-      || die "$name did not respond at $url"
-    [[ "$code" == "200" ]] || die "$name returned HTTP $code at $url"
+    local attempt
+    code=""
+    for attempt in {1..10}; do
+      if code="$(curl --max-time 10 -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)" \
+        && [[ "$code" == "200" ]]; then
+        break
+      fi
+      sleep 1
+    done
+    [[ "$code" == "200" ]] \
+      || die "$name did not return HTTP 200 at $url after 10 attempts (last status: ${code:-no response})"
     printf '%-10s HTTP %s  %s\n' "$name" "$code" "$url"
   done
 }
@@ -130,8 +190,41 @@ stop_local() {
   done
 }
 
+forward_local() {
+  KUBE_CONTEXT="${KUBE_CONTEXT:-docker-desktop}"
+  require_command kubectl
+  require_command curl
+  kubectl --context "$KUBE_CONTEXT" cluster-info >/dev/null \
+    || die "Kubernetes context '$KUBE_CONTEXT' is not reachable"
+
+  mkdir -p "$PID_DIR"
+  start_port_forward "$RELEASE-frontend" 3000 80
+  start_port_forward "$RELEASE-auth" 3001 3001
+  start_port_forward "$RELEASE-streaming" 3002 3002
+  start_port_forward "$RELEASE-admin" 3003 3003
+  start_port_forward "$RELEASE-chat" 3004 3004
+  check_local_endpoints
+}
+
+refresh_local_aws_credentials() {
+  KUBE_CONTEXT="${KUBE_CONTEXT:-docker-desktop}"
+  require_command aws
+  require_command kubectl
+  kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
+    get deployment "$RELEASE-admin" "$RELEASE-streaming" >/dev/null \
+    || die "Local app deployments are not installed"
+  ensure_local_aws_secret "$KUBE_CONTEXT"
+  kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
+    rollout restart deployment/"$RELEASE-admin" deployment/"$RELEASE-streaming"
+  kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
+    rollout status deployment/"$RELEASE-admin" --timeout=5m
+  kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
+    rollout status deployment/"$RELEASE-streaming" --timeout=5m
+}
+
 build_local_images() {
-  docker compose build auth streaming admin chat
+  IMAGE_PREFIX="$image_prefix" IMAGE_TAG="$image_tag" \
+    docker compose build auth streaming admin chat
   docker pull mongo:6
   docker build -t streamingapp-frontend:k8s-local \
     --build-arg REACT_APP_AUTH_API_URL=http://localhost:3001/api \
@@ -144,12 +237,16 @@ build_local_images() {
 }
 
 deploy_local() {
+  local image_prefix="${IMAGE_PREFIX:-streamingappcapstone}"
+  local image_tag="${IMAGE_TAG:-latest}"
+
   KUBE_CONTEXT="${KUBE_CONTEXT:-docker-desktop}"
   require_command docker
   require_command kubectl
   require_command helm
   require_command curl
   require_command openssl
+  require_command aws
   [[ -f "$LOCAL_VALUES" ]] || die "Local values file not found: $LOCAL_VALUES"
   docker info >/dev/null || die "Docker engine is not available"
   kubectl config get-contexts "$KUBE_CONTEXT" -o name | grep -Fxq "$KUBE_CONTEXT" \
@@ -162,14 +259,32 @@ deploy_local() {
   build_local_images
   ensure_namespace
   ensure_runtime_secret "$KUBE_CONTEXT"
+  ensure_local_aws_secret "$KUBE_CONTEXT"
   helm upgrade --install "$RELEASE" ./helm/streamingapp \
     --kube-context "$KUBE_CONTEXT" \
     --namespace "$NAMESPACE" \
     --values "$LOCAL_VALUES" \
+    --set-string "services.auth.image=$image_prefix-auth:$image_tag" \
+    --set-string "services.streaming.image=$image_prefix-streaming:$image_tag" \
+    --set-string "services.admin.image=$image_prefix-admin:$image_tag" \
+    --set-string "services.chat.image=$image_prefix-chat:$image_tag" \
+    --set-string "awsRegion=$AWS_REGION" \
+    --set-string "services.streaming.env.AWS_S3_BUCKET=$AWS_S3_BUCKET" \
+    --set-string "services.admin.env.AWS_S3_BUCKET=$AWS_S3_BUCKET" \
+    --set-string "objectStorage.bucket=$AWS_S3_BUCKET" \
+    --set-string "objectStorage.endpoint=" \
+    --set-string "objectStorage.forcePathStyle=false" \
+    --set-string "objectStorage.credentialsSecret=streamingapp-object-store" \
     --wait --timeout 5m
 
   kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
+    rollout restart deployment/"$RELEASE-admin" deployment/"$RELEASE-streaming"
+  kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
     wait --for=condition=Available deployment --all --timeout=5m
+  kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
+    rollout status deployment/"$RELEASE-admin" --timeout=5m
+  kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
+    rollout status deployment/"$RELEASE-streaming" --timeout=5m
   kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
     wait --for=jsonpath='{.status.phase}'=Bound "pvc/$RELEASE-mongo-data" --timeout=3m
 
@@ -191,15 +306,30 @@ deploy_local() {
 }
 
 deploy_aws() {
+  local deploy_env
+  local project_name
+  local repository_prefix
+  local app_service_account_name
   local caller_arn
   local account_id
   local cluster_cidrs
   local registry
   local image_tag
+  local local_image_prefix
+  local local_image_tag
   local image
   local ingress_hostname=""
   local attempt
   local secret_file
+
+  deploy_env="${DEPLOY_ENV:-uat}"
+  [[ "$deploy_env" == "uat" || "$deploy_env" == "prod" ]] \
+    || die "DEPLOY_ENV must be uat or prod; dev is the local Docker Desktop environment"
+  project_name="${PROJECT_NAME:-streamingapp}"
+  repository_prefix="${ECR_REPOSITORY_PREFIX:-${project_name}-${deploy_env}}"
+  app_service_account_name="${APP_SERVICE_ACCOUNT_NAME:-${project_name}-${deploy_env}-app}"
+  RELEASE="${HELM_RELEASE:-${project_name}-${deploy_env}}"
+  NAMESPACE="${K8S_NAMESPACE:-${project_name}-${deploy_env}}"
 
   require_command aws
   require_command docker
@@ -210,9 +340,11 @@ deploy_aws() {
   [[ -n "${EXPECTED_AWS_ACCOUNT_ID:-}" ]] || die "Set EXPECTED_AWS_ACCOUNT_ID to the approved account ID"
   [[ -n "${TRUSTED_EKS_API_CIDR:-}" ]] || die "Set TRUSTED_EKS_API_CIDR to the approved EKS API client CIDR"
   [[ "$TRUSTED_EKS_API_CIDR" != "0.0.0.0/0" ]] || die "Do not expose the EKS API to 0.0.0.0/0"
+  [[ -n "${AWS_S3_BUCKET:-}" ]] || die "Set AWS_S3_BUCKET to this account/environment's Terraform media_bucket_name output"
+  [[ -n "${APP_MEDIA_ROLE_ARN:-}" ]] || die "Set APP_MEDIA_ROLE_ARN to this account/environment's Terraform app_media_access_role_arn output"
 
   AWS_REGION="${AWS_REGION:-ap-south-1}"
-  EKS_CLUSTER_NAME="${EKS_CLUSTER_NAME:-streamingapp-eks}"
+  EKS_CLUSTER_NAME="${EKS_CLUSTER_NAME:-${project_name}-${deploy_env}-eks}"
   caller_arn="$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query Arn --output text)"
   [[ "$caller_arn" != *":user/"* ]] \
     || die "Current AWS credentials are an IAM user. Configure the approved short-lived IAM Identity Center/assumed-role profile."
@@ -229,8 +361,8 @@ deploy_aws() {
   registry="$account_id.dkr.ecr.$AWS_REGION.amazonaws.com"
   for image in auth streaming admin chat frontend; do
     aws ecr describe-repositories --profile "$AWS_PROFILE" --region "$AWS_REGION" \
-      --repository-names "streamingapp-$image" >/dev/null \
-      || die "ECR repository streamingapp-$image not found; provision it before deployment"
+      --repository-names "$repository_prefix-$image" >/dev/null \
+      || die "ECR repository $repository_prefix-$image not found; provision it before deployment"
   done
 
   aws eks update-kubeconfig --profile "$AWS_PROFILE" --region "$AWS_REGION" \
@@ -252,7 +384,10 @@ deploy_aws() {
   [[ "$confirmation" == "deploy" ]] || die "AWS deployment cancelled"
 
   image_tag="${IMAGE_TAG:-$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)}"
-  docker compose build auth streaming admin chat
+  local_image_prefix="${IMAGE_PREFIX:-streamingappcapstone}"
+  local_image_tag="${LOCAL_IMAGE_TAG:-latest}"
+  IMAGE_PREFIX="$local_image_prefix" IMAGE_TAG="$local_image_tag" \
+    docker compose build auth streaming admin chat
   docker build -t "streamingapp-frontend:aws-$image_tag" \
     --build-arg REACT_APP_AUTH_API_URL=/api \
     --build-arg REACT_APP_STREAMING_API_URL=/api \
@@ -265,11 +400,11 @@ deploy_aws() {
   aws ecr get-login-password --profile "$AWS_PROFILE" --region "$AWS_REGION" \
     | docker login --username AWS --password-stdin "$registry"
   for image in auth streaming admin chat; do
-    docker tag "streamingappcapstone-$image:latest" "$registry/streamingapp-$image:$image_tag"
-    docker push "$registry/streamingapp-$image:$image_tag"
+    docker tag "$local_image_prefix-$image:$local_image_tag" "$registry/$repository_prefix-$image:$image_tag"
+    docker push "$registry/$repository_prefix-$image:$image_tag"
   done
-  docker tag "streamingapp-frontend:aws-$image_tag" "$registry/streamingapp-frontend:$image_tag"
-  docker push "$registry/streamingapp-frontend:$image_tag"
+  docker tag "streamingapp-frontend:aws-$image_tag" "$registry/$repository_prefix-frontend:$image_tag"
+  docker push "$registry/$repository_prefix-frontend:$image_tag"
 
   ensure_namespace
   if ! kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
@@ -284,14 +419,28 @@ deploy_aws() {
     trap - RETURN
   fi
 
-  helm upgrade --install "$RELEASE" ./helm/streamingapp \
-    --kube-context "$KUBE_CONTEXT" \
-    --namespace "$NAMESPACE" \
-    --set-string "services.auth.image=$registry/streamingapp-auth:$image_tag" \
-    --set-string "services.streaming.image=$registry/streamingapp-streaming:$image_tag" \
-    --set-string "services.admin.image=$registry/streamingapp-admin:$image_tag" \
-    --set-string "services.chat.image=$registry/streamingapp-chat:$image_tag" \
-    --set-string "services.frontend.image=$registry/streamingapp-frontend:$image_tag" \
+  local helm_args=(
+    --kube-context "$KUBE_CONTEXT"
+    --namespace "$NAMESPACE"
+    --set-string "services.auth.image=$registry/$repository_prefix-auth:$image_tag"
+    --set-string "services.streaming.image=$registry/$repository_prefix-streaming:$image_tag"
+    --set-string "services.admin.image=$registry/$repository_prefix-admin:$image_tag"
+    --set-string "services.chat.image=$registry/$repository_prefix-chat:$image_tag"
+    --set-string "services.frontend.image=$registry/$repository_prefix-frontend:$image_tag"
+    --set-string "awsRegion=$AWS_REGION"
+    --set-string "services.streaming.env.AWS_S3_BUCKET=$AWS_S3_BUCKET"
+    --set-string "services.admin.env.AWS_S3_BUCKET=$AWS_S3_BUCKET"
+    --set-string "objectStorage.bucket=$AWS_S3_BUCKET"
+    --set-string "objectStorage.endpoint="
+    --set-string "objectStorage.forcePathStyle=false"
+    --set-string "objectStorage.credentialsSecret="
+    --set-string "serviceAccount.name=$app_service_account_name"
+    --set-string "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=$APP_MEDIA_ROLE_ARN"
+  )
+  if [[ -n "${HELM_VALUES_FILE:-}" ]]; then
+    helm_args+=(--values "$HELM_VALUES_FILE")
+  fi
+  helm upgrade --install "$RELEASE" ./helm/streamingapp "${helm_args[@]}" \
     --wait --timeout 10m
 
   for attempt in {1..60}; do
@@ -303,25 +452,19 @@ deploy_aws() {
   [[ -n "$ingress_hostname" ]] \
     || die "Ingress has no ALB hostname yet; inspect kubectl describe ingress and controller logs"
 
-  helm upgrade "$RELEASE" ./helm/streamingapp \
-    --kube-context "$KUBE_CONTEXT" \
-    --namespace "$NAMESPACE" \
-    --set-string "services.auth.image=$registry/streamingapp-auth:$image_tag" \
-    --set-string "services.streaming.image=$registry/streamingapp-streaming:$image_tag" \
-    --set-string "services.admin.image=$registry/streamingapp-admin:$image_tag" \
-    --set-string "services.chat.image=$registry/streamingapp-chat:$image_tag" \
-    --set-string "services.frontend.image=$registry/streamingapp-frontend:$image_tag" \
+  helm upgrade "$RELEASE" ./helm/streamingapp "${helm_args[@]}" \
     --set-string "services.auth.env.CLIENT_URLS=http://$ingress_hostname" \
     --set-string "services.streaming.env.CLIENT_URLS=http://$ingress_hostname" \
     --set-string "services.admin.env.CLIENT_URLS=http://$ingress_hostname" \
     --set-string "services.chat.env.CLIENT_URLS=http://$ingress_hostname" \
     --set-string "services.streaming.env.STREAMING_PUBLIC_URL=http://$ingress_hostname" \
+    --set-string "services.admin.env.STREAMING_PUBLIC_URL=http://$ingress_hostname" \
     --wait --timeout 10m
 
   kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
     wait --for=condition=Available deployment --all --timeout=10m
-  printf 'AWS deployment complete. Image tag: %s\nIngress: http://%s\n' \
-    "$image_tag" "$ingress_hostname"
+  printf 'AWS deployment complete. Environment: %s; image tag: %s\nIngress: http://%s\n' \
+    "$deploy_env" "$image_tag" "$ingress_hostname"
   kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
     get deployments,pods,services,pvc,ingress
 }
@@ -336,13 +479,17 @@ status_local() {
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/k8s-deploy.sh local       Build and deploy to local Kubernetes; start port-forwards
+  scripts/k8s-deploy.sh local       Build/deploy to local Kubernetes using the UAT S3 role; start port-forwards
+  scripts/k8s-deploy.sh forward-local  Start local port-forwards and check app endpoints
+  scripts/k8s-deploy.sh refresh-local-aws-credentials  Refresh the 1-hour local AWS session
   scripts/k8s-deploy.sh status      Show local release and test its endpoints
   scripts/k8s-deploy.sh stop-local  Stop only the managed local port-forwards
   scripts/k8s-deploy.sh aws         Push images and deploy to an already-provisioned EKS cluster
 
 AWS mode requires AWS_PROFILE, EXPECTED_AWS_ACCOUNT_ID, and TRUSTED_EKS_API_CIDR.
 It never runs Terraform apply and requires typing "deploy" before pushing images.
+Local mode additionally requires AWS_PROFILE, EXPECTED_AWS_ACCOUNT_ID, AWS_S3_BUCKET,
+and LOCAL_S3_ROLE_ARN for short-lived UAT bucket-scoped credentials.
 EOF
 }
 
@@ -357,6 +504,12 @@ case "${1:-}" in
     ;;
   status)
     status_local
+    ;;
+  forward-local)
+    forward_local
+    ;;
+  refresh-local-aws-credentials)
+    refresh_local_aws_credentials
     ;;
   stop-local)
     stop_local

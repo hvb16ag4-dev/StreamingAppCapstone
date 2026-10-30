@@ -24,3 +24,23 @@ output "load_balancer_controller_role_arn" {
   description = "IAM role ARN for the AWS Load Balancer Controller."
   value       = aws_iam_role.load_balancer_controller.arn
 }
+
+output "media_bucket_name" {
+  description = "Private S3 bucket for this environment's video and thumbnail objects."
+  value       = aws_s3_bucket.media.bucket
+}
+
+output "app_media_access_role_arn" {
+  description = "IRSA role ARN for the app service account's least-privilege S3 access."
+  value       = aws_iam_role.app_media_access.arn
+}
+
+output "local_dev_media_access_role_arn" {
+  description = "Optional short-lived role ARN for local DEV to access its isolated UAT-account media bucket."
+  value       = var.local_dev_access_enabled ? aws_iam_role.local_dev_media_access[0].arn : ""
+}
+
+output "local_dev_media_bucket_name" {
+  description = "Optional separate media bucket for local DEV testing in the UAT account."
+  value       = var.local_dev_access_enabled ? aws_s3_bucket.local_dev_media[0].bucket : ""
+}

@@ -1,5 +1,7 @@
 replicaCount: 1
 
+awsRegion: ap-south-1
+
 mongo:
   enabled: true
   image: mongo:6
@@ -9,46 +11,56 @@ mongo:
 secrets:
   existingSecret: streamingapp-runtime
 
+objectStorage:
+  bucket: ""
+  endpoint: ""
+  forcePathStyle: false
+  credentialsSecret: ""
+  accessKeyIdKey: access-key-id
+  secretAccessKeyKey: secret-access-key
+  sessionTokenKey: session-token
+
+serviceAccount:
+  name: ""
+  annotations: {}
+
 services:
   auth:
-    image: "123456789012.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-auth:latest"
+    image: "streamingappcapstone-auth:latest"
     port: 3001
     env:
       PORT: "3001"
       MONGO_DATABASE: "streamingapp"
       CLIENT_URLS: "http://localhost:3000"
-      AWS_REGION: "ap-south-1"
-      AWS_S3_BUCKET: "" 
+      AWS_S3_BUCKET: ""
   streaming:
-    image: "123456789012.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-streaming:latest"
+    image: "streamingappcapstone-streaming:latest"
     port: 3002
     env:
       PORT: "3002"
       MONGO_DATABASE: "streamingapp"
       CLIENT_URLS: "http://localhost:3000"
-      AWS_REGION: "ap-south-1"
       AWS_S3_BUCKET: ""
       AWS_CDN_URL: ""
       STREAMING_PUBLIC_URL: "http://localhost:3002"
   admin:
-    image: "123456789012.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-admin:latest"
+    image: "streamingappcapstone-admin:latest"
     port: 3003
     env:
       PORT: "3003"
       MONGO_DATABASE: "streamingapp"
       CLIENT_URLS: "http://localhost:3000"
-      AWS_REGION: "ap-south-1"
       AWS_S3_BUCKET: ""
       AWS_CDN_URL: ""
   chat:
-    image: "123456789012.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-chat:latest"
+    image: "streamingappcapstone-chat:latest"
     port: 3004
     env:
       PORT: "3004"
       MONGO_DATABASE: "streamingapp"
       CLIENT_URLS: "http://localhost:3000"
   frontend:
-    image: "123456789012.dkr.ecr.ap-south-1.amazonaws.com/streamingapp-frontend:latest"
+    image: "streamingapp-frontend:k8s-local"
     port: 80
 
 ingress:

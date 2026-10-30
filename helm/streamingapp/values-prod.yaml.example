@@ -1,0 +1,37 @@
+awsRegion: ap-south-1
+
+objectStorage:
+  bucket: REPLACE_WITH_TERRAFORM_MEDIA_BUCKET_NAME
+  endpoint: ""
+  forcePathStyle: false
+  credentialsSecret: ""
+
+serviceAccount:
+  name: streamingapp-prod-app
+  annotations:
+    eks.amazonaws.com/role-arn: REPLACE_WITH_TERRAFORM_APP_MEDIA_ACCESS_ROLE_ARN
+
+mongo:
+  storage: 20Gi
+
+services:
+  auth:
+    env:
+      CLIENT_URLS: "REPLACE_WITH_PRODUCTION_HTTPS_ORIGIN"
+  streaming:
+    env:
+      CLIENT_URLS: "REPLACE_WITH_PRODUCTION_HTTPS_ORIGIN"
+      AWS_S3_BUCKET: REPLACE_WITH_TERRAFORM_MEDIA_BUCKET_NAME
+      AWS_CDN_URL: ""
+  admin:
+    env:
+      CLIENT_URLS: "REPLACE_WITH_PRODUCTION_HTTPS_ORIGIN"
+      AWS_S3_BUCKET: REPLACE_WITH_TERRAFORM_MEDIA_BUCKET_NAME
+      AWS_CDN_URL: ""
+  chat:
+    env:
+      CLIENT_URLS: "REPLACE_WITH_PRODUCTION_HTTPS_ORIGIN"
+
+ingress:
+  enabled: true
+  host: ""

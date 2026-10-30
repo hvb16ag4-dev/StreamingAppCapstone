@@ -5,14 +5,23 @@ const buildAwsCredentials = () => {
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || process.env.AWS_SECRET_KEY;
 
   if (accessKeyId && secretAccessKey) {
-    return { accessKeyId, secretAccessKey };
+    const sessionToken = process.env.AWS_SESSION_TOKEN;
+    return sessionToken
+      ? { accessKeyId, secretAccessKey, sessionToken }
+      : { accessKeyId, secretAccessKey };
   }
 
   return undefined;
 };
 
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION,
+  region: process.env.AWS_REGION || 'us-east-1',
+  ...(process.env.AWS_S3_ENDPOINT
+    ? {
+        endpoint: process.env.AWS_S3_ENDPOINT,
+        forcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE !== 'false',
+      }
+    : {}),
   credentials: buildAwsCredentials(),
 });
 

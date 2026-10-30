@@ -1,28 +1,30 @@
-# Local Kubernetes test before AWS
+# Local Kubernetes test with AWS S3
 
-This guide deploys the current `feature_terraform` Helm chart to a local Kubernetes cluster before using EKS. Docker Desktop Kubernetes is the simplest path on Windows/WSL. Minikube is a suitable alternative. Neither method creates AWS resources.
+This guide deploys the current Helm chart to a local Kubernetes cluster before using EKS. Docker Desktop Kubernetes is the simplest path on Windows/WSL. Minikube is a suitable alternative. The local cluster does not provision AWS resources; it requires the pre-provisioned, isolated DEV bucket and assumed role in the UAT account.
 
-The local Kubernetes test uses the same five app images built for Compose and pulls the official `mongo:6` image. It disables the chart's AWS ALB Ingress and uses `kubectl port-forward` for local browser/API access. It does not test S3 upload/playback or AWS IAM roles.
+The local Kubernetes test builds the five app images, pulls `mongo:6`, and uses a separate private DEV media bucket in the UAT AWS account. It disables the AWS ALB Ingress and uses `kubectl port-forward` for local browser/API access. The helper assumes a restricted AWS role for one hour and places the temporary credentials in a Kubernetes Secret; it does not use static keys.
 
 ## One-command deployment helper
 
-From the repository root, run:
+First configure the UAT bucket/role as described in [environment-configuration.md](./environment-configuration.md), authenticate with the UAT IAM Identity Center profile, and export `AWS_PROFILE`, `EXPECTED_AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_S3_BUCKET` (the local DEV bucket output), and `LOCAL_S3_ROLE_ARN` (the local DEV role output). Then run from the repository root:
 
 ```bash
 chmod +x scripts/k8s-deploy.sh
 ./scripts/k8s-deploy.sh local
 ```
 
-This checks Docker Desktop Kubernetes, rebuilds the four backend images and a frontend image with localhost API URLs, ensures the namespace and runtime Secret exist, upgrades the local Helm release, waits for Deployments/PVC readiness, starts managed port-forwards, and checks all five HTTP endpoints. Open `http://localhost:3000` for screenshots. The script reuses the existing JWT Secret and does not print its value.
+This checks Docker Desktop Kubernetes, rebuilds the four backend images and a frontend image with localhost API URLs, ensures local JWT and temporary AWS credential Secrets exist, upgrades the Helm release, restarts S3 clients with refreshed credentials, starts managed port-forwards, and checks all five HTTP endpoints. Open `http://localhost:3000` for screenshots. Secret values are never printed.
 
 When the port-forwards stop but the release still exists, run `./scripts/k8s-deploy.sh local` again; it reconciles the release and restarts the tunnels. Other helpers:
 
 ```bash
 ./scripts/k8s-deploy.sh status
+./scripts/k8s-deploy.sh forward-local
+./scripts/k8s-deploy.sh refresh-local-aws-credentials
 ./scripts/k8s-deploy.sh stop-local
 ```
 
-`stop-local` only stops the managed port-forwards. To remove the local Helm release, run `helm uninstall streamingapp --namespace streamingapp`; removing the namespace also deletes its local MongoDB PVC/data.
+`stop-local` only stops the managed port-forwards. `forward-local` restarts the tunnels and checks endpoints without rebuilding or changing the release. `refresh-local-aws-credentials` assumes a fresh one-hour S3 role session and restarts the admin/streaming Deployments. To remove the local Helm release, run `helm uninstall streamingapp --namespace streamingapp`; removing the namespace deletes local Kubernetes objects, but does not delete the AWS S3 bucket or its objects. Remove AWS resources only through a separately reviewed Terraform plan.
 
 For Minikube, select its context when running the helper:
 
@@ -65,17 +67,15 @@ The local build and Helm steps below are the same. If Minikube cannot see Docker
 
 ## 2. Configure local environment values
 
-Compose reads the ignored repository-root `.env` file. Helm/Kubernetes does **not** read that file; Kubernetes receives normal settings through Helm values and the JWT through a Kubernetes Secret.
+Compose reads the ignored repository-root `.env` file. Helm/Kubernetes does **not** read that file; Kubernetes receives normal settings through Helm values and JWT/temporary AWS credentials through Kubernetes Secrets.
 
 For Compose/local image builds, create `.env` in the repository root with local-only values:
 
 ```ini
 MONGO_DB=streamingapp
-JWT_SECRET=<generate-a-unique-local-random-value>
 CLIENT_URLS=http://localhost:3000
-AWS_REGION=ap-south-1
-AWS_S3_BUCKET=
-AWS_CDN_URL=
+IMAGE_PREFIX=streamingappcapstone
+IMAGE_TAG=latest
 STREAMING_PUBLIC_URL=http://localhost:3002
 REACT_APP_AUTH_API_URL=http://localhost:3001/api
 REACT_APP_STREAMING_API_URL=http://localhost:3002/api
@@ -85,13 +85,7 @@ REACT_APP_CHAT_API_URL=http://localhost:3004/api/chat
 REACT_APP_CHAT_SOCKET_URL=http://localhost:3004
 ```
 
-Generate a secret locally, then paste it into `.env` without sharing or capturing its value:
-
-```bash
-openssl rand -hex 32
-```
-
-Do not copy the AWS access-key placeholders from `.env.example`; leave AWS credentials and bucket/CDN values unset for this test. `.env` is ignored by Git. Without S3, browse/login/chat health can be tested, but uploading and playing S3-backed videos cannot.
+`.env` is ignored by Git. Do not put AWS credentials, JWTs, or temporary credentials in it. The local helper creates the JWT Secret and refreshes the short-lived, bucket-scoped AWS credential Secret without printing its values.
 
 ## 3. Build images locally
 
@@ -103,14 +97,14 @@ docker compose pull mongo
 docker image ls
 ```
 
-With the current Compose project name, the four backend images are:
+With the default prefix/tag, the four backend images are:
 
 - `streamingappcapstone-auth:latest`
 - `streamingappcapstone-streaming:latest`
 - `streamingappcapstone-admin:latest`
 - `streamingappcapstone-chat:latest`
 
-Check `docker image ls` and edit the image names in [`helm/streamingapp/values-local.yaml.example`](../helm/streamingapp/values-local.yaml.example) if Compose used a different project prefix.
+The helper passes the configured prefix/tag to Helm. To use custom local image names, export matching `IMAGE_PREFIX` and `IMAGE_TAG` values before running the helper.
 
 Build a separate frontend image for port-forward-based browser access. CRA bakes these addresses into the static bundle at build time:
 
@@ -139,7 +133,7 @@ The MongoDB image does not need to be built: Kubernetes pulls `mongo:6` from Doc
 
 ## 4. Render, install, and verify the Helm release
 
-The example local values set local image names, single replicas, localhost CORS origins, and disable the AWS ALB Ingress. Keep the JWT out of this values file.
+The example local values set localhost CORS origins, an AWS S3 endpoint with path-style addressing disabled, and disable the AWS ALB Ingress. The helper supplies the account-specific bucket and temporary credential Secret name. Keep all credentials out of this values file.
 
 ```bash
 helm lint ./helm/streamingapp
@@ -147,19 +141,10 @@ helm template streamingapp ./helm/streamingapp \
   --namespace streamingapp \
   --values ./helm/streamingapp/values-local.yaml.example
 
-kubectl create namespace streamingapp \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n streamingapp create secret generic streamingapp-runtime \
-  --from-literal=jwt-secret="$(openssl rand -hex 32)" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-helm upgrade --install streamingapp ./helm/streamingapp \
-  --namespace streamingapp \
-  --values ./helm/streamingapp/values-local.yaml.example \
-  --wait --timeout 5m
+./scripts/k8s-deploy.sh local
 ```
 
-The generated JWT is only in the local Kubernetes Secret. The chart composes each backend Mongo URI using the release's Mongo Service name; install as release `streamingapp` so it resolves to `streamingapp-mongo`.
+The helper creates a random JWT Secret and assumes a bucket-scoped role to create a temporary AWS credential Secret. Do not replace these with manually generated long-lived access keys. The chart composes each backend Mongo URI using the release's Mongo Service name; use release `streamingapp` so it resolves to `streamingapp-mongo`.
 
 Check workload and storage status:
 
@@ -193,7 +178,19 @@ curl -fsS http://localhost:3004/api/health
 curl -I http://localhost:3000
 ```
 
-Exercise registration/login and chat using two browser sessions. Catalogue metadata can be tested if seeded into MongoDB; video upload and playback require S3 and are intentionally out of scope here.
+Register a user, then for a local admin test promote that user's role in MongoDB:
+
+```bash
+kubectl -n streamingapp exec -it deployment/streamingapp-mongo -- mongosh streamingapp
+```
+
+In `mongosh`, replace the email with the registered account:
+
+```javascript
+db.users.updateOne({ email: "you@example.com" }, { $set: { role: "admin" } })
+```
+
+Sign out and back in, open `/admin`, and upload a small video plus thumbnail. The upload is stored in the isolated local-DEV AWS S3 bucket; metadata goes to MongoDB. Browse and play the video to test byte-range streaming. Use `kubectl -n streamingapp get deployments,pods,services,pvc` to check the app. This tests AWS S3 using the restricted local role, not the EKS IRSA path.
 
 If a pod does not start, inspect its events and logs:
 
@@ -236,7 +233,7 @@ To delete the namespace and its Mongo PVC/data too:
 kubectl delete namespace streamingapp
 ```
 
-Only delete the namespace if the local MongoDB test data is disposable. Docker Compose containers are separate; stop those with `docker compose down` if they were also started.
+Deleting the namespace does not delete the local DEV S3 bucket. Keep or remove its objects according to the agreed retention policy; versioned objects may need to be removed before Terraform can delete the bucket. Docker Compose containers are separate; stop those with `docker compose down` if they were also started.
 
 ## 6. Move from local Kubernetes to AWS
 
@@ -249,12 +246,13 @@ aws sso login --profile streamingapp
 export AWS_PROFILE=streamingapp
 export EXPECTED_AWS_ACCOUNT_ID=YOUR_APPROVED_ACCOUNT_ID
 export TRUSTED_EKS_API_CIDR=YOUR_TRUSTED_PUBLIC_IP/32
+export DEPLOY_ENV=uat
 export AWS_REGION=ap-south-1
-export EKS_CLUSTER_NAME=streamingapp-eks
+export EKS_CLUSTER_NAME=streamingapp-uat-eks
 ./scripts/k8s-deploy.sh aws
 ```
 
-The script checks that the SSO/assumed-role identity matches the expected account, the cluster allows the supplied trusted CIDR, the five ECR repositories exist, the AWS Load Balancer Controller rollout is ready, and a default StorageClass exists. It asks for the literal confirmation `deploy` before it builds/pushes images and performs the Helm release. **It does not run `terraform apply`**; Terraform must be planned, reviewed, and applied separately. The AWS mode creates a generated JWT Kubernetes Secret only if one does not exist and waits for the ALB DNS name before updating CORS/public streaming URLs. It currently uses HTTP, not TLS. AWS resources incur costs.
+For full account-specific Terraform values, state-backend warning, S3/IRSA outputs, and UAT/PROD commands, see [environment-configuration.md](./environment-configuration.md). The AWS helper checks the short-lived assumed-role identity/account, trusted API CIDR, environment-specific ECR repositories, ALB Controller rollout, and default StorageClass. It requires the environment's `AWS_S3_BUCKET` and `APP_MEDIA_ROLE_ARN`, then prompts for the literal confirmation `deploy` before pushing images and deploying. **It does not run `terraform apply`**; AWS resources and data may incur cost. The current ALB values use HTTP; configure HTTPS, DNS, and a certificate before production.
 
 Do not use the generated in-cluster Secret workflow as a production secret-management design. For longer-lived environments, configure external secret management/rotation and remote Terraform state with locking first.
 

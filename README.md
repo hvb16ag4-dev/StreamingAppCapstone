@@ -1,6 +1,6 @@
 # StreamingApp
 
-Stream premium video content, host live watch parties, and manage your catalogue with a modern microservice architecture. The platform now ships with a production-ready admin portal, real-time chat, S3-backed adaptive streaming, and a redesigned cinematic frontend experience.
+Stream video content, host live watch parties, and manage a catalogue with a microservice architecture. The app includes an admin portal, real-time chat, S3-compatible video storage, and a React frontend.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ All backend services share common database models and utilities through `backend
 
 ## Environment Configuration
 
-Create an `.env` for each service (or export variables before running). All services accept the standard AWS credentials for S3 access.
+Create a repository-root `.env` from `.env.example` for Docker Compose. Do not put AWS credentials in app `.env` files. Local Kubernetes uses temporary credentials for a bucket-scoped role in the UAT account; AWS EKS uses the workload's IRSA role.
 
 ### Auth Service (`backend/authService/.env`)
 ```ini
@@ -25,10 +25,10 @@ PORT=3001
 MONGO_URI=mongodb://localhost:27017/streamingapp
 JWT_SECRET=changeme
 CLIENT_URLS=http://localhost:3000
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
 AWS_REGION=ap-south-1
 AWS_S3_BUCKET=
+AWS_S3_ENDPOINT=
+AWS_S3_FORCE_PATH_STYLE=false
 ```
 
 ### Streaming Service (`backend/streamingService/.env`)
@@ -37,8 +37,6 @@ PORT=3002
 MONGO_URI=mongodb://localhost:27017/streamingapp
 JWT_SECRET=changeme
 CLIENT_URLS=http://localhost:3000
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
 AWS_REGION=ap-south-1
 AWS_S3_BUCKET=
 AWS_CDN_URL=
@@ -51,8 +49,6 @@ PORT=3003
 MONGO_URI=mongodb://localhost:27017/streamingapp
 JWT_SECRET=changeme
 CLIENT_URLS=http://localhost:3000
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
 AWS_REGION=ap-south-1
 AWS_S3_BUCKET=
 ```
@@ -77,14 +73,14 @@ REACT_APP_CHAT_SOCKET_URL=http://localhost:3004
 
 ## Running with Docker Compose
 
-1. Populate the environment variables above (or rely on the defaults baked into `docker-compose.yml`).
+1. Copy `.env.example` to `.env`; set the image prefix/tag and service configuration for your environment.
 2. Build and start the stack:
    ```bash
    docker-compose up --build
    ```
 3. Navigate to `http://localhost:3000` for the web app.
 
-The compose file provisions MongoDB plus all four Node.js microservices. S3 credentials are optional for local testing—you can still browse seeded metadata, but streaming requires valid S3 objects.
+The Compose file builds MongoDB plus the four Node.js microservices and frontend. Docker Desktop Kubernetes tests upload/playback against a separate, private DEV bucket in the UAT account using short-lived credentials; see [docs/local-kubernetes-testing.md](./docs/local-kubernetes-testing.md). For AWS, use separate UAT and PROD accounts/profiles and the [environment configuration guide](./docs/environment-configuration.md); never put AWS keys in application config.
 
 ## Local Development
 

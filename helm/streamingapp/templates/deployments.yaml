@@ -91,7 +91,7 @@ spec:
             - name: CLIENT_URLS
               value: {{ .Values.services.auth.env.CLIENT_URLS | quote }}
             - name: AWS_REGION
-              value: {{ .Values.services.auth.env.AWS_REGION | quote }}
+              value: {{ .Values.awsRegion | quote }}
             - name: AWS_S3_BUCKET
               value: {{ .Values.services.auth.env.AWS_S3_BUCKET | quote }}
 ---
@@ -126,6 +126,7 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}-streaming
     spec:
+      serviceAccountName: {{ default (printf "%s-app" .Release.Name) .Values.serviceAccount.name | quote }}
       containers:
         - name: streaming
           image: {{ .Values.services.streaming.image | quote }}
@@ -145,9 +146,30 @@ spec:
             - name: CLIENT_URLS
               value: {{ .Values.services.streaming.env.CLIENT_URLS | quote }}
             - name: AWS_REGION
-              value: {{ .Values.services.streaming.env.AWS_REGION | quote }}
+              value: {{ .Values.awsRegion | quote }}
             - name: AWS_S3_BUCKET
               value: {{ .Values.services.streaming.env.AWS_S3_BUCKET | quote }}
+            - name: AWS_S3_ENDPOINT
+              value: {{ .Values.objectStorage.endpoint | quote }}
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: {{ .Values.objectStorage.forcePathStyle | quote }}
+{{- if .Values.objectStorage.credentialsSecret }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.objectStorage.credentialsSecret | quote }}
+                  key: {{ .Values.objectStorage.accessKeyIdKey | quote }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.objectStorage.credentialsSecret | quote }}
+                  key: {{ .Values.objectStorage.secretAccessKeyKey | quote }}
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.objectStorage.credentialsSecret | quote }}
+                  key: {{ .Values.objectStorage.sessionTokenKey | quote }}
+{{- end }}
             - name: AWS_CDN_URL
               value: {{ .Values.services.streaming.env.AWS_CDN_URL | quote }}
             - name: STREAMING_PUBLIC_URL
@@ -184,6 +206,7 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}-admin
     spec:
+      serviceAccountName: {{ default (printf "%s-app" .Release.Name) .Values.serviceAccount.name | quote }}
       containers:
         - name: admin
           image: {{ .Values.services.admin.image | quote }}
@@ -203,11 +226,34 @@ spec:
             - name: CLIENT_URLS
               value: {{ .Values.services.admin.env.CLIENT_URLS | quote }}
             - name: AWS_REGION
-              value: {{ .Values.services.admin.env.AWS_REGION | quote }}
+              value: {{ .Values.awsRegion | quote }}
             - name: AWS_S3_BUCKET
               value: {{ .Values.services.admin.env.AWS_S3_BUCKET | quote }}
+            - name: AWS_S3_ENDPOINT
+              value: {{ .Values.objectStorage.endpoint | quote }}
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: {{ .Values.objectStorage.forcePathStyle | quote }}
+{{- if .Values.objectStorage.credentialsSecret }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.objectStorage.credentialsSecret | quote }}
+                  key: {{ .Values.objectStorage.accessKeyIdKey | quote }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.objectStorage.credentialsSecret | quote }}
+                  key: {{ .Values.objectStorage.secretAccessKeyKey | quote }}
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.objectStorage.credentialsSecret | quote }}
+                  key: {{ .Values.objectStorage.sessionTokenKey | quote }}
+{{- end }}
             - name: AWS_CDN_URL
               value: {{ .Values.services.admin.env.AWS_CDN_URL | quote }}
+            - name: STREAMING_PUBLIC_URL
+              value: {{ .Values.services.admin.env.STREAMING_PUBLIC_URL | quote }}
 ---
 apiVersion: v1
 kind: Service

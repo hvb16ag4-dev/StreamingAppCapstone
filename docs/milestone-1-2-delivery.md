@@ -22,7 +22,7 @@ Record each decision here before implementing the affected work. Never put AWS c
 
 | Decision/input | Current value | Needed for |
 |---|---|---|
-| AWS account to deploy into | **Needed from owner** (share account alias/ID only if useful; never credentials) | Resource ownership and cost estimate |
+| AWS accounts to deploy into | Separate dedicated UAT and PROD accounts confirmed; account IDs/profiles still needed for provisioning | Resource ownership and cost estimate |
 | AWS region | `ap-south-1` (Mumbai), confirmed by owner | Terraform, ECR, EKS, Ingress |
 | AWS access method | IAM Identity Center is available. Current CLI authentication succeeds but uses IAM-user credentials; migrate to a dedicated permission set/role before provisioning. Do not create a long-lived `terraform_user` IAM user/access key. | Secure Terraform and deployment access |
 | Deployment target | Create a new dedicated VPC and EKS cluster; no existing VPC/EKS is available | Terraform scope and resource import/avoidance |
@@ -30,7 +30,7 @@ Record each decision here before implementing the affected work. Never put AWS c
 | DNS/domain and TLS certificate | Use the generated ALB hostname for temporary verification; defer custom domain/TLS to production testing | Ingress host rules and frontend URLs |
 | MongoDB placement | Use the existing single-instance in-cluster MongoDB/PVC for temporary verification; data may be destroyed during teardown. Document a managed database option for production. | Persistence, cost, credentials, and Helm resources |
 | Existing S3 bucket/CDN | Create a temporary S3 bucket with Terraform for the test; no CDN unless required by validation. Delete bucket contents and bucket during approved teardown. | Streaming/admin configuration and IAM permissions |
-| Terraform state storage | Recommend remote S3 state with locking; confirm whether a state bucket/lock mechanism already exists | Safe collaboration and repeatable Terraform runs |
+| Terraform state storage | S3 backend with a separate bucket/key and DynamoDB lock per AWS account; bootstrap resources still need to be created by the owner | Safe collaboration and repeatable Terraform runs |
 | Image/deployment ownership | Current Jenkinsfile builds and pushes images; confirm whether Jenkins remains the deployment runner or a local operator runs Helm | CI credentials and deployment procedure |
 
 Use AWS IAM Identity Center with a dedicated permission set. A group is useful for multiple operators but not mandatory for one operator; assigning the permission set directly is sufficient. Include only the reviewed VPC, EKS, ECR, IAM, and supporting read actions needed by Terraform, and narrowly scope `iam:PassRole` to the cluster/node role ARNs and AWS services that assume them. Do not use a long-lived `terraform_user` key. The AWS administrator must assign the permission set and the owner must configure local AWS CLI SSO before planning. Jenkins should use a separate short-lived role/OIDC setup if it becomes the deployment runner.
@@ -62,7 +62,7 @@ The application roles are different from the human Terraform permission set: EKS
 
 - [ ] Add Terraform modules/configuration for the agreed network, EKS control plane, managed node capacity, IAM roles/policies, cluster access, and required ECR repositories.
 - [ ] Include the IAM/OIDC permissions needed by the AWS Load Balancer Controller (or document an approved alternative).
-- [ ] Choose and document remote state, locking, provider/version constraints, inputs, outputs, and tagging.
+- [x] Choose and document the S3 remote state backend, per-account keys, DynamoDB locking, provider/version constraints, inputs, outputs, and tagging. Bootstrap the state bucket and lock table in each account before initialization.
 - [ ] Keep secrets and generated state out of version control; add ignore rules where needed.
 - [ ] Document prerequisites, initialization, plan review, apply, outputs, and destroy/retention steps.
 - [ ] Run formatting, initialization, validation, and a reviewed plan. Do not apply until the owner approves the plan and expected cost.
@@ -104,9 +104,9 @@ The application roles are different from the human Terraform permission set: EKS
 
 ### Task 4 — Documentation, final verification, and delivery
 
-- [ ] Update the project README and `Readme_terraform.md` with verified setup and deployment steps.
-- [ ] Record encountered challenges and the actual fixes (not anticipated issues as though they happened).
-- [ ] Add test commands, date, environment, result, and any known limitations.
+- [x] Update the project README and `Readme_terraform.md` with verified setup and deployment steps.
+- [x] Record encountered challenges and the actual fixes (not anticipated issues as though they happened).
+- [x] Add test commands, date, environment, result, and known limitations.
 - [ ] Add screenshots/results under `docs/evidence/`; redact credentials, tokens, private endpoints, and personal data.
 - [ ] Verify Git status, ignore rules, and staged diff before each commit.
 - [ ] Commit and push each completed task/checkpoint to the agreed branch; do not bundle unrelated or unverified work into a completion commit.
@@ -124,6 +124,9 @@ Update this table with actual command output summaries and dates. Do not record 
 | 2026-10-28 | Terraform/Helm review | Review of chart defaults and Terraform inputs | Fixed MongoDB service DNS, JWT secret reference, frontend same-origin build defaults, supported EKS version, scoped public API CIDR, and ALB controller policy | Terraform fmt/validate and Helm lint/template passed |
 | 2026-10-28 | Frontend image | `docker build --tag streamingapp-frontend:validation ./frontend` | Passed | Local Docker build |
 | 2026-10-28 | Local app stack | `docker compose up --build -d` + service health requests | Auth, streaming, admin, chat, and frontend images built; public `mongo:6` image pulled; all four backend health endpoints and frontend returned HTTP 200 | Local Docker/HTTP smoke test |
+| 2026-10-30 | Environment configuration | Terraform S3 backend examples, environment-specific Terraform/Helm values, dynamic image references, and short-lived local S3 role flow | Added UAT/PROD account separation, separate local DEV media bucket/role, and deployment/credential-refresh documentation. No AWS resources were created. | Local configuration review |
+| 2026-10-30 | Static validation | `terraform fmt -check -recursive terraform`; `terraform init -backend=false`; `terraform validate`; Helm lint/template for base, local, UAT, and PROD; `bash -n`; Node syntax checks; `docker compose config --quiet` | Passed. Compose emitted only its existing obsolete `version` attribute warning. | Local terminal validation |
+| 2026-10-30 | Local Kubernetes | `./scripts/k8s-deploy.sh forward-local` | All five local endpoints returned HTTP 200. AWS S3 upload testing remains blocked until UAT state/bucket/role prerequisites are created. | Local Kubernetes health checks |
 | Pending | AWS plan | `terraform plan` with approved identity and trusted CIDR | Not run; migrate from IAM-user credentials and supply trusted API CIDR first | — |
 | Pending | EKS deploy | Rollout and endpoint smoke tests | Pending approved SSO/role access, trusted CIDR, controller installation, and owner approval | — |
 
@@ -147,4 +150,4 @@ Work on the local `feature_terraform` branch. Use one focused commit for each co
 3. `deploy: add Helm ingress and EKS application configuration`
 4. `docs: record deployment validation and evidence`
 
-Before each commit, inspect `git status` and `git diff --cached`, ensure secrets/state/evidence with sensitive information are excluded or redacted, and include the required co-author trailer. Do not push from this environment: the owner will push `feature_terraform` from their console. After each meaningful checkpoint, report the commit hash and whether it is ready for the owner to push.
+Before each commit, inspect `git status` and `git diff --cached`, ensure secrets/state/evidence with sensitive information are excluded or redacted, and include the required co-author trailer. Push only the requested `feature_terraform` branch after validation; never push credentials, Terraform state, or unreviewed AWS changes.
