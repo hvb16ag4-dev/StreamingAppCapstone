@@ -84,6 +84,22 @@ The message `gio: ... Operation not supported` means the CLI could not launch a 
 
 If the login command has already exited, the code expired, or the browser says the code is invalid, run the login command again and use the newly generated code. Do not reuse a previous code.
 
+If the page displays **“Something doesn't compute”**:
+
+1. Close that page and cancel any still-running login attempt with Ctrl+C. A code is short-lived and is tied to one login attempt; do not retry an old code or start multiple login commands at once.
+2. Confirm `sso_start_url` is exactly the IAM Identity Center access portal URL for your organization. Do not use the device verification URL as `sso_start_url`.
+3. Confirm `sso_region` is the AWS Region where your organization's IAM Identity Center instance is configured. It is **not necessarily the S3 bucket region**. Ask the Identity Center administrator to confirm the home/instance region if unsure. Update the existing `[sso-session capstone-sso]` entry if needed; leave its start URL and the profile's `sso_session = capstone-sso` reference intact.
+4. Start one fresh device authorization and keep it running:
+
+   ```bash
+   aws sso login --profile personal --use-device-code
+   ```
+
+5. In a browser, open the exact verification URL printed for that attempt and enter the newly printed code. Complete the authorization promptly, then wait for the CLI command to finish before running other AWS commands.
+6. If the error remains, verify your browser account is allowed to use the organization's IAM Identity Center portal and that the selected AWS account/permission set is assigned to you. Ask the Identity Center administrator to check the portal configuration and assignment.
+
+Do not post the device code, authorization URL containing a code, SSO access token, or CLI cache contents. If you need help diagnosing the failure, share only the non-secret error text and whether it appears before or after entering the code.
+
 Sign in and verify the profile:
 
 ```bash
