@@ -63,19 +63,35 @@ output = json
 Edit `~/.aws/config` without deleting the existing session block. You can also create a profile interactively instead:
 
 ```bash
-aws configure sso --profile streamingapp-local
+aws configure sso --profile personal --use-device-code
 ```
 
-When prompted, use the existing start URL and SSO region, then select the bucket-owning account and the permission set. Do not type a bare `--profile`; it requires a profile name after it.
+When prompted, use the existing start URL and SSO region, then select the bucket-owning account and the permission set. The resulting profile name in this example is `personal`; use `AWS_PROFILE=personal` (or rename the profile consistently) in subsequent commands. Do not type a bare `--profile`; it requires a profile name after it.
+
+### If the browser does not open (WSL/Linux)
+
+The message `gio: ... Operation not supported` means the CLI could not launch a browser through the desktop URL handler. It does not by itself mean the SSO request failed. The CLI prints a device verification URL and a short-lived code:
+
+1. Start a **new** login attempt if the code was shared with anyone or may have expired:
+
+   ```bash
+   aws sso login --profile personal --use-device-code
+   ```
+
+2. Leave the terminal command running. On your own device, open the exact verification URL printed by the CLI in a browser where you can sign in to your organization's IAM Identity Center.
+3. Enter the new code printed in that same terminal. Do not paste the code into chat, tickets, screenshots, or documents.
+4. Approve the request in the browser. Return to the terminal and wait for the CLI command to complete.
+
+If the login command has already exited, the code expired, or the browser says the code is invalid, run the login command again and use the newly generated code. Do not reuse a previous code.
 
 Sign in and verify the profile:
 
 ```bash
-aws sso login --profile streamingapp-local
-aws sts get-caller-identity --profile streamingapp-local
+aws sso login --profile personal --use-device-code
+aws sts get-caller-identity --profile personal
 ```
 
-Confirm the returned `Account` is the bucket-owning account. Record it for `EXPECTED_AWS_ACCOUNT_ID`. If the profile already exists and works for that account, use its name instead of `streamingapp-local` in the rest of this guide.
+If you already completed the interactive login successfully, do not immediately start another login; just run `aws sts get-caller-identity --profile personal`. Confirm the returned `Account` is the bucket-owning account. Record it for `EXPECTED_AWS_ACCOUNT_ID`. Use the same profile name consistently in all later commands.
 
 If AWS CLI rejects `sso_session`, check `aws --version`; IAM Identity Center's `sso-session` profile format requires AWS CLI v2. Update to a current AWS CLI v2 release, then retry the login and identity check.
 
