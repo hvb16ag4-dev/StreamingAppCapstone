@@ -27,17 +27,57 @@ Use the bucket's actual region below. The account ID is a 12-digit number; do no
 
 ## 2. Configure or select your IAM Identity Center profile
 
-Use an IAM Identity Center (AWS SSO) profile for the AWS account that owns the bucket:
+Your `~/.aws/config` currently defines a reusable SSO session:
+
+```ini
+[sso-session capstone-sso]
+sso_start_url = https://d-9f675baa0a.awsapps.com/start
+sso_region = ap-south-1
+sso_registration_scopes = sso:account:access
+```
+
+That session block is valid, but it does not select an AWS account or permission set. Add a profile that references it. Replace the account ID with the 12-digit account that owns the bucket, `YOUR_PERMISSION_SET_NAME` with the permission set name assigned to you in IAM Identity Center, and `YOUR_BUCKET_REGION` with the bucket's AWS region:
+
+```ini
+[profile streamingapp-local]
+sso_session = capstone-sso
+sso_account_id = 123456789012
+sso_role_name = YOUR_PERMISSION_SET_NAME
+region = YOUR_BUCKET_REGION
+output = json
+```
+
+For example, if the permission set is named `StreamingAppLocal` and the bucket is in `ap-south-1`:
+
+```ini
+[profile streamingapp-local]
+sso_session = capstone-sso
+sso_account_id = 123456789012
+sso_role_name = StreamingAppLocal
+region = ap-south-1
+output = json
+```
+
+`sso_region` is the region where IAM Identity Center is configured. The profile's `region` is the default AWS service region, and should match the S3 bucket's region for this test. They may be different in another setup. `sso_role_name` is the permission set name shown by the Identity Center access portal, not the generated `AWSReservedSSO_...` IAM role name.
+
+Edit `~/.aws/config` without deleting the existing session block. You can also create a profile interactively instead:
 
 ```bash
 aws configure sso --profile streamingapp-local
+```
+
+When prompted, use the existing start URL and SSO region, then select the bucket-owning account and the permission set. Do not type a bare `--profile`; it requires a profile name after it.
+
+Sign in and verify the profile:
+
+```bash
 aws sso login --profile streamingapp-local
 aws sts get-caller-identity --profile streamingapp-local
 ```
 
-During `aws configure sso`, enter your organization's SSO start URL and SSO region, select the AWS account containing the bucket, and select the permission set assigned to you. Verify the returned `Account` is the bucket-owning account. Record this account ID for `EXPECTED_AWS_ACCOUNT_ID`.
+Confirm the returned `Account` is the bucket-owning account. Record it for `EXPECTED_AWS_ACCOUNT_ID`. If the profile already exists and works for that account, use its name instead of `streamingapp-local` in the rest of this guide.
 
-If you already use a working profile for that account, keep it and use its profile name instead of `streamingapp-local`.
+If AWS CLI rejects `sso_session`, check `aws --version`; IAM Identity Center's `sso-session` profile format requires AWS CLI v2. Update to a current AWS CLI v2 release, then retry the login and identity check.
 
 ## 3. Find the IAM Identity Center role ARN
 
