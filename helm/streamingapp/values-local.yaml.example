@@ -21,6 +21,7 @@ services:
   auth:
     image: streamingappcapstone-auth:latest
     env:
+      NODE_ENV: development
       CLIENT_URLS: "http://localhost:3000"
       AWS_S3_BUCKET: ""
   streaming:

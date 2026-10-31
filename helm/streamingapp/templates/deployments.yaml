@@ -83,6 +83,8 @@ spec:
           env:
             - name: PORT
               value: {{ .Values.services.auth.env.PORT | quote }}
+            - name: NODE_ENV
+              value: {{ default "production" .Values.services.auth.env.NODE_ENV | quote }}
             - name: MONGO_URI
               value: "mongodb://{{ .Release.Name }}-mongo:{{ .Values.mongo.port }}/{{ .Values.services.auth.env.MONGO_DATABASE }}"
             - name: JWT_SECRET

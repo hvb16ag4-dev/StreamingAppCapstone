@@ -26,6 +26,20 @@ When the port-forwards stop but the release still exists, run `./scripts/k8s-dep
 
 `stop-local` only stops the managed port-forwards. `forward-local` restarts the tunnels and checks endpoints without rebuilding or changing the release. `refresh-local-aws-credentials` assumes a fresh one-hour S3 role session and restarts the admin/streaming Deployments. To remove the local Helm release, run `helm uninstall streamingapp --namespace streamingapp`; removing the namespace deletes local Kubernetes objects, but does not delete the AWS S3 bucket or its objects. Remove AWS resources only through a separately reviewed Terraform plan.
 
+### Resetting a local account password
+
+The local reset endpoint creates a six-digit code valid for 15 minutes. The current backend does not send this code by email; in local development mode it logs the code in the auth pod logs. The local Helm values set `NODE_ENV=development` so this works even though the container image defaults to production mode. Do not enable this setting in UAT/PROD or share the local logs/code.
+
+1. Open `http://localhost:3000/forgot-password`, enter the registered account's email, and request a reset code.
+2. Read the matching code in the auth logs:
+
+   ```bash
+   kubectl --context docker-desktop -n streamingapp logs deployment/streamingapp-auth --since=5m \
+     | grep 'Password reset code for'
+   ```
+
+3. Enter that code and a new password in the form. Sign in with the new password. No need to register another account.
+
 ### Fixing direct navigation to frontend routes
 
 The frontend uses React Router routes such as `/login` and `/register`. If the site root works but directly opening one of those paths returns an Nginx `404 Not Found`, update the chart so Nginx falls back to the React `index.html` for client-side routes:
