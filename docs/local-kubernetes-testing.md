@@ -26,6 +26,38 @@ When the port-forwards stop but the release still exists, run `./scripts/k8s-dep
 
 `stop-local` only stops the managed port-forwards. `forward-local` restarts the tunnels and checks endpoints without rebuilding or changing the release. `refresh-local-aws-credentials` assumes a fresh one-hour S3 role session and restarts the admin/streaming Deployments. To remove the local Helm release, run `helm uninstall streamingapp --namespace streamingapp`; removing the namespace deletes local Kubernetes objects, but does not delete the AWS S3 bucket or its objects. Remove AWS resources only through a separately reviewed Terraform plan.
 
+### Recovering a release created with older Helm values
+
+If frontend/auth/chat work but admin and streaming are unavailable, check the service-account and AWS-region settings:
+
+```bash
+kubectl --context docker-desktop -n streamingapp get serviceaccounts
+kubectl --context docker-desktop -n streamingapp get deployments
+kubectl --context docker-desktop -n streamingapp logs deployment/streamingapp-streaming --tail=50
+```
+
+The admin and streaming Deployments use the `streamingapp-app` service account. If it is missing, or their logs show `Error: Region is missing`, reconcile the **existing release** with the current chart values (change the context, namespace, and release if using non-default names):
+
+```bash
+helm --kube-context docker-desktop upgrade streamingapp ./helm/streamingapp \
+  --namespace streamingapp --reuse-values \
+  --set-string serviceAccount.name=streamingapp-app \
+  --set-string awsRegion=ap-south-1 \
+  --set-string objectStorage.endpoint= \
+  --set objectStorage.forcePathStyle=false \
+  --set-string objectStorage.credentialsSecret= \
+  --wait --timeout 5m
+kubectl --context docker-desktop -n streamingapp rollout restart \
+  deployment/streamingapp-admin deployment/streamingapp-streaming
+kubectl --context docker-desktop -n streamingapp rollout status \
+  deployment/streamingapp-admin --timeout=5m
+kubectl --context docker-desktop -n streamingapp rollout status \
+  deployment/streamingapp-streaming --timeout=5m
+./scripts/k8s-deploy.sh forward-local
+```
+
+This upgrades the Helm release and replaces those two app pods; it does **not** create a Kubernetes cluster or restart MongoDB. The `awsRegion` value is needed even before S3 is configured because both AWS SDK clients require a region at startup. The current chart templates default missing legacy `serviceAccount`/`objectStorage` values and an unset region, but explicit release values are recommended during recovery. Once the S3 role and bucket are ready, use `./scripts/k8s-deploy.sh local` to deploy with the AWS-backed settings.
+
 For Minikube, select its context when running the helper:
 
 ```bash
