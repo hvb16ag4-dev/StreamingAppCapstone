@@ -26,6 +26,20 @@ When the port-forwards stop but the release still exists, run `./scripts/k8s-dep
 
 `stop-local` only stops the managed port-forwards. `forward-local` restarts the tunnels and checks endpoints without rebuilding or changing the release. `refresh-local-aws-credentials` assumes a fresh one-hour S3 role session and restarts the admin/streaming Deployments. To remove the local Helm release, run `helm uninstall streamingapp --namespace streamingapp`; removing the namespace deletes local Kubernetes objects, but does not delete the AWS S3 bucket or its objects. Remove AWS resources only through a separately reviewed Terraform plan.
 
+### Fixing direct navigation to frontend routes
+
+The frontend uses React Router routes such as `/login` and `/register`. If the site root works but directly opening one of those paths returns an Nginx `404 Not Found`, update the chart so Nginx falls back to the React `index.html` for client-side routes:
+
+```bash
+helm --kube-context docker-desktop upgrade streamingapp ./helm/streamingapp \
+  --namespace streamingapp --reuse-values --wait --timeout 5m
+kubectl --context docker-desktop -n streamingapp rollout status \
+  deployment/streamingapp-frontend --timeout=5m
+curl -I http://localhost:3000/login
+```
+
+The chart mounts the SPA-fallback Nginx config from a ConfigMap, so this fix does not require the cluster to pull a newly rebuilt image. The route should return the React app HTML (HTTP 200); React then renders the login page. This only updates the existing Helm release and frontend pod; it does not recreate the local Kubernetes cluster.
+
 ### Recovering a release created with older Helm values
 
 If frontend/auth/chat work but admin and streaming are unavailable, check the service-account and AWS-region settings:

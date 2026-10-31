@@ -344,6 +344,15 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: {{ .Values.services.frontend.port }}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ .Release.Name }}-frontend-nginx
 ---
 apiVersion: v1
 kind: Service
