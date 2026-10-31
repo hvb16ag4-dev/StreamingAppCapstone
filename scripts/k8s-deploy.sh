@@ -214,12 +214,14 @@ refresh_local_aws_credentials() {
     get deployment "$RELEASE-admin" "$RELEASE-streaming" >/dev/null \
     || die "Local app deployments are not installed"
   ensure_local_aws_secret "$KUBE_CONTEXT"
+  stop_local
   kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
     rollout restart deployment/"$RELEASE-admin" deployment/"$RELEASE-streaming"
   kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
     rollout status deployment/"$RELEASE-admin" --timeout=5m
   kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" \
     rollout status deployment/"$RELEASE-streaming" --timeout=5m
+  forward_local
 }
 
 build_local_images() {

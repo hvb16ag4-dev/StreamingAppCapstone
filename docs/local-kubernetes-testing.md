@@ -24,7 +24,7 @@ When the port-forwards stop but the release still exists, run `./scripts/k8s-dep
 ./scripts/k8s-deploy.sh stop-local
 ```
 
-`stop-local` only stops the managed port-forwards. `forward-local` restarts the tunnels and checks endpoints without rebuilding or changing the release. `refresh-local-aws-credentials` assumes a fresh one-hour S3 role session and restarts the admin/streaming Deployments. To remove the local Helm release, run `helm uninstall streamingapp --namespace streamingapp`; removing the namespace deletes local Kubernetes objects, but does not delete the AWS S3 bucket or its objects. Remove AWS resources only through a separately reviewed Terraform plan.
+`stop-local` only stops the managed port-forwards. `forward-local` restarts the tunnels and checks endpoints without rebuilding or changing the release. `refresh-local-aws-credentials` assumes a fresh one-hour S3 role session, restarts the admin/streaming Deployments, then reconnects the local port-forwards and checks endpoints. To remove the local Helm release, run `helm uninstall streamingapp --namespace streamingapp`; removing the namespace deletes local Kubernetes objects, but does not delete the AWS S3 bucket or its objects. Remove AWS resources only through a separately reviewed Terraform plan.
 
 ### Resetting a local account password
 
