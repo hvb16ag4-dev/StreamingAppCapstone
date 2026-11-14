@@ -64,7 +64,7 @@ jobs:
           docker push \
             ${{ env.ECR_REGISTRY }}/capstone/adminservice:${{ github.run_number }}
 
-      - name: Build Auth Service
+      - name: Build Auth Services
         run: |
           docker build \
             -f backend/authService/Dockerfile \
