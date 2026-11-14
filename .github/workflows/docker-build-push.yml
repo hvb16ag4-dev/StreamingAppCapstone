@@ -51,70 +51,70 @@ jobs:
             --password-stdin \
             ${{ env.ECR_REGISTRY }}
 
-      - name: Build and Push Admin Service
+      - name: Build Admin Service
         run: |
           docker build \
-            -t capstone/adminservice:${{ env.IMAGE_TAG }} \
-            -f backend/adminService/Dockerfile .
+            -f backend/adminService/Dockerfile \
+            -t adminservice:${{ github.run_number }} .
 
           docker tag \
-            capstone/adminservice:${{ env.IMAGE_TAG }} \
-            ${{ env.ECR_REGISTRY }}/capstone/adminservice:${{ env.IMAGE_TAG }}
+            adminservice:${{ github.run_number }} \
+            ${{ env.ECR_REGISTRY }}/capstone/adminservice:${{ github.run_number }}
 
           docker push \
-            ${{ env.ECR_REGISTRY }}/capstone/adminservice:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/capstone/adminservice:${{ github.run_number }}
 
-      - name: Build and Push Auth Service
+      - name: Build Auth Service
         run: |
           docker build \
-            -t capstone/authservice:${{ env.IMAGE_TAG }} \
-            -f backend/authService/Dockerfile .
+            -f backend/authService/Dockerfile \
+            -t authservice:${{ github.run_number }} .
 
           docker tag \
-            capstone/authservice:${{ env.IMAGE_TAG }} \
-            ${{ env.ECR_REGISTRY }}/capstone/authservice:${{ env.IMAGE_TAG }}
+            authservice:${{ github.run_number }} \
+            ${{ env.ECR_REGISTRY }}/capstone/authservice:${{ github.run_number }}
 
           docker push \
-            ${{ env.ECR_REGISTRY }}/capstone/authservice:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/capstone/authservice:${{ github.run_number }}
 
-      - name: Build and Push Chat Service
+      - name: Build Chat Service
         run: |
           docker build \
-            -t capstone/chatservice:${{ env.IMAGE_TAG }} \
-            -f backend/chatService/Dockerfile .
+            -f backend/chatService/Dockerfile \
+            -t chatservice:${{ github.run_number }} .
 
           docker tag \
-            capstone/chatservice:${{ env.IMAGE_TAG }} \
-            ${{ env.ECR_REGISTRY }}/capstone/chatservice:${{ env.IMAGE_TAG }}
+            chatservice:${{ github.run_number }} \
+            ${{ env.ECR_REGISTRY }}/capstone/chatservice:${{ github.run_number }}
 
           docker push \
-            ${{ env.ECR_REGISTRY }}/capstone/chatservice:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/capstone/chatservice:${{ github.run_number }}
 
-      - name: Build and Push Streaming Service
+      - name: Build Streaming Service
         run: |
           docker build \
-            -t capstone/streamingservice:${{ env.IMAGE_TAG }} \
-            -f backend/streamingService/Dockerfile .
+            -f backend/streamingService/Dockerfile \
+            -t streamingservice:${{ github.run_number }} .
 
           docker tag \
-            capstone/streamingservice:${{ env.IMAGE_TAG }} \
-            ${{ env.ECR_REGISTRY }}/capstone/streamingservice:${{ env.IMAGE_TAG }}
+            streamingservice:${{ github.run_number }} \
+            ${{ env.ECR_REGISTRY }}/capstone/streamingservice:${{ github.run_number }}
 
           docker push \
-            ${{ env.ECR_REGISTRY }}/capstone/streamingservice:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/capstone/streamingservice:${{ github.run_number }}
 
-      - name: Build and Push Frontend
+      - name: Build Frontend
         run: |
           docker build \
-            -t capstone/frontend:${{ env.IMAGE_TAG }} \
-            -f frontend/Dockerfile .
+            -f frontend/Dockerfile \
+            -t frontend:${{ github.run_number }} .
 
           docker tag \
-            capstone/frontend:${{ env.IMAGE_TAG }} \
-            ${{ env.ECR_REGISTRY }}/capstone/frontend:${{ env.IMAGE_TAG }}
+            frontend:${{ github.run_number }} \
+            ${{ env.ECR_REGISTRY }}/capstone/frontend:${{ github.run_number }}
 
           docker push \
-            ${{ env.ECR_REGISTRY }}/capstone/frontend:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/capstone/frontend:${{ github.run_number }}
 
       - name: Deployment Success
         if: success()
