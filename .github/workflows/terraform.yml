@@ -1,0 +1,111 @@
+name: Terraform IaC
+
+on:
+  push:
+    branches:
+      - feature_terraform
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraformcicd.yml'
+  pull_request:
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraformcicd.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Terraform Format
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init (no backend)
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+  apply-uat:
+    name: Apply UAT Infrastructure
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature_terraform'
+    needs: validate
+    runs-on: ubuntu-latest
+    # Configure GitHub environment "uat" with secret AWS_ROLE_ARN and variables
+    # AWS_REGION, TF_STATE_BUCKET, TF_LOCK_TABLE, and CLUSTER_PUBLIC_ACCESS_CIDRS (JSON list).
+    # The remote state bucket and lock table must already exist.
+    environment: uat
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: terraform-uat
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_environment: uat
+      TF_VAR_cluster_public_access_cidrs: ${{ vars.CLUSTER_PUBLIC_ACCESS_CIDRS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feature_terraform
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Check deployment configuration
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          for name in AWS_ROLE_ARN AWS_REGION TF_STATE_BUCKET TF_LOCK_TABLE TF_VAR_cluster_public_access_cidrs; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required GitHub UAT environment secret or variable for ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Terraform Init
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=streamingapp/uat/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE}"
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -lock-timeout=5m -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -input=false -auto-approve tfplan
