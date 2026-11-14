@@ -1,0 +1,192 @@
+name: Helm UAT Deployment
+
+on:
+  push:
+    branches:
+      - feature_terraform
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'helm/streamingapp/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/helm-upgrade.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'helm/streamingapp/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/helm-upgrade.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Lint and render chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || 'feature_terraform' }}
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: helm lint ./helm/streamingapp
+
+      - name: Helm template
+        run: helm template streamingapp-uat ./helm/streamingapp --namespace streamingapp-uat
+
+  deploy-uat:
+    name: Build, push, and upgrade UAT
+    if: github.ref == 'refs/heads/feature_terraform'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: uat
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: helm-streamingapp-uat
+      cancel-in-progress: false
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EXPECTED_AWS_ACCOUNT_ID: ${{ vars.EXPECTED_AWS_ACCOUNT_ID }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'streamingapp-uat-eks' }}
+      AWS_S3_BUCKET: ${{ vars.AWS_S3_BUCKET }}
+      APP_MEDIA_ROLE_ARN: ${{ vars.APP_MEDIA_ROLE_ARN }}
+      NAMESPACE: streamingapp-uat
+      RELEASE: streamingapp-uat
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feature_terraform
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Check deployment configuration
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        shell: bash
+        run: |
+          for name in AWS_ROLE_ARN AWS_REGION EXPECTED_AWS_ACCOUNT_ID AWS_S3_BUCKET APP_MEDIA_ROLE_ARN; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required GitHub UAT environment secret or variable for ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS account and configure EKS access
+        shell: bash
+        run: |
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          if [[ "$account_id" != "$EXPECTED_AWS_ACCOUNT_ID" ]]; then
+            echo "::error::Authenticated AWS account does not match EXPECTED_AWS_ACCOUNT_ID"
+            exit 1
+          fi
+          echo "REGISTRY=${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> "$GITHUB_ENV"
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+          kubectl get nodes
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push application images
+        env:
+          IMAGE_PREFIX: ${{ steps.ecr-login.outputs.registry }}/streamingapp-uat
+          REACT_APP_AUTH_API_URL: /api
+          REACT_APP_STREAMING_API_URL: /api
+          REACT_APP_STREAMING_PUBLIC_URL: /
+          REACT_APP_ADMIN_API_URL: /api/admin
+          REACT_APP_CHAT_API_URL: /api/chat
+          REACT_APP_CHAT_SOCKET_URL: /
+        shell: bash
+        run: |
+          docker compose build auth streaming admin chat frontend
+          docker compose push auth streaming admin chat frontend
+
+      - name: Lint, render, and upgrade Helm release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          helm_args=(
+            --set-string "services.auth.image=${REGISTRY}/streamingapp-uat-auth:${IMAGE_TAG}"
+            --set-string "services.streaming.image=${REGISTRY}/streamingapp-uat-streaming:${IMAGE_TAG}"
+            --set-string "services.admin.image=${REGISTRY}/streamingapp-uat-admin:${IMAGE_TAG}"
+            --set-string "services.chat.image=${REGISTRY}/streamingapp-uat-chat:${IMAGE_TAG}"
+            --set-string "services.frontend.image=${REGISTRY}/streamingapp-uat-frontend:${IMAGE_TAG}"
+            --set-string "awsRegion=${AWS_REGION}"
+            --set-string "objectStorage.bucket=${AWS_S3_BUCKET}"
+            --set-string "services.streaming.env.AWS_S3_BUCKET=${AWS_S3_BUCKET}"
+            --set-string "services.admin.env.AWS_S3_BUCKET=${AWS_S3_BUCKET}"
+            --set-string "serviceAccount.name=streamingapp-uat-app"
+            --set-string "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=${APP_MEDIA_ROLE_ARN}"
+          )
+
+          helm lint ./helm/streamingapp "${helm_args[@]}"
+          helm template "$RELEASE" ./helm/streamingapp \
+            --namespace "$NAMESPACE" "${helm_args[@]}" >/dev/null
+
+          kubectl create namespace "$NAMESPACE" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          if ! kubectl --namespace "$NAMESPACE" get secret streamingapp-runtime >/dev/null 2>&1; then
+            jwt_secret="$(openssl rand -hex 32)"
+            kubectl --namespace "$NAMESPACE" create secret generic streamingapp-runtime \
+              --from-literal="jwt-secret=${jwt_secret}"
+            unset jwt_secret
+          fi
+
+          helm upgrade --install "$RELEASE" ./helm/streamingapp \
+            --namespace "$NAMESPACE" --create-namespace \
+            "${helm_args[@]}" --wait --timeout 10m
+
+          ingress_hostname=""
+          for attempt in {1..60}; do
+            ingress_hostname="$(kubectl --namespace "$NAMESPACE" \
+              get ingress "$RELEASE" \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+            [[ -n "$ingress_hostname" ]] && break
+            sleep 10
+          done
+          if [[ -z "$ingress_hostname" ]]; then
+            kubectl --namespace "$NAMESPACE" describe ingress "$RELEASE" || true
+            echo "::error::Ingress has no load balancer hostname; check the AWS Load Balancer Controller"
+            exit 1
+          fi
+
+          app_origin="http://${ingress_hostname}"
+          helm upgrade "$RELEASE" ./helm/streamingapp \
+            --namespace "$NAMESPACE" "${helm_args[@]}" \
+            --set-string "services.auth.env.CLIENT_URLS=${app_origin}" \
+            --set-string "services.streaming.env.CLIENT_URLS=${app_origin}" \
+            --set-string "services.admin.env.CLIENT_URLS=${app_origin}" \
+            --set-string "services.chat.env.CLIENT_URLS=${app_origin}" \
+            --set-string "services.streaming.env.STREAMING_PUBLIC_URL=${app_origin}" \
+            --set-string "services.admin.env.STREAMING_PUBLIC_URL=${app_origin}" \
+            --wait --timeout 10m
+
+          kubectl --namespace "$NAMESPACE" \
+            wait --for=condition=Available deployment --all --timeout=10m
+          kubectl get all --namespace "$NAMESPACE"
+          kubectl get pods --namespace "$NAMESPACE"
+          kubectl get ingress "$RELEASE" --namespace "$NAMESPACE"
