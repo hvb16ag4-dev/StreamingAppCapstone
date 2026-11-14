@@ -14,9 +14,9 @@ on:
           - prod
 
 env:
-  AWS_REGION: ap-south-2
-  AWS_ACCOUNT_ID: 020784397620
-  ECR_REGISTRY: public.ecr.aws/l2o2e1j1
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
   IMAGE_TAG: ${{ github.run_number }}
 
 jobs:
