@@ -1,0 +1,127 @@
+name: Build and Push Docker Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment Environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  AWS_REGION: ap-south-1
+  AWS_ACCOUNT_ID: 129373676098
+  ECR_REGISTRY: public.ecr.aws/l5r9g0t4
+  IMAGE_TAG: ${{ github.run_number }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: CICD_DockerImage_ECR_EC2
+
+      - name: Cleanup Docker Images
+        run: |
+          echo "Cleaning old Docker resources..."
+          docker image prune -af || true
+          docker container prune -f || true
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Public ECR
+        run: |
+          aws ecr-public get-login-password --region us-east-1 \
+          | docker login \
+            --username AWS \
+            --password-stdin \
+            ${{ env.ECR_REGISTRY }}
+
+      - name: Build and Push Admin Service
+        run: |
+          docker build \
+            -t capstone/adminservice:${{ env.IMAGE_TAG }} \
+            -f backend/adminService/Dockerfile .
+
+          docker tag \
+            capstone/adminservice:${{ env.IMAGE_TAG }} \
+            ${{ env.ECR_REGISTRY }}/capstone/adminservice:${{ env.IMAGE_TAG }}
+
+          docker push \
+            ${{ env.ECR_REGISTRY }}/capstone/adminservice:${{ env.IMAGE_TAG }}
+
+      - name: Build and Push Auth Service
+        run: |
+          docker build \
+            -t capstone/authservice:${{ env.IMAGE_TAG }} \
+            -f backend/authService/Dockerfile .
+
+          docker tag \
+            capstone/authservice:${{ env.IMAGE_TAG }} \
+            ${{ env.ECR_REGISTRY }}/capstone/authservice:${{ env.IMAGE_TAG }}
+
+          docker push \
+            ${{ env.ECR_REGISTRY }}/capstone/authservice:${{ env.IMAGE_TAG }}
+
+      - name: Build and Push Chat Service
+        run: |
+          docker build \
+            -t capstone/chatservice:${{ env.IMAGE_TAG }} \
+            -f backend/chatService/Dockerfile .
+
+          docker tag \
+            capstone/chatservice:${{ env.IMAGE_TAG }} \
+            ${{ env.ECR_REGISTRY }}/capstone/chatservice:${{ env.IMAGE_TAG }}
+
+          docker push \
+            ${{ env.ECR_REGISTRY }}/capstone/chatservice:${{ env.IMAGE_TAG }}
+
+      - name: Build and Push Streaming Service
+        run: |
+          docker build \
+            -t capstone/streamingservice:${{ env.IMAGE_TAG }} \
+            -f backend/streamingService/Dockerfile .
+
+          docker tag \
+            capstone/streamingservice:${{ env.IMAGE_TAG }} \
+            ${{ env.ECR_REGISTRY }}/capstone/streamingservice:${{ env.IMAGE_TAG }}
+
+          docker push \
+            ${{ env.ECR_REGISTRY }}/capstone/streamingservice:${{ env.IMAGE_TAG }}
+
+      - name: Build and Push Frontend
+        run: |
+          docker build \
+            -t capstone/frontend:${{ env.IMAGE_TAG }} \
+            -f frontend/Dockerfile .
+
+          docker tag \
+            capstone/frontend:${{ env.IMAGE_TAG }} \
+            ${{ env.ECR_REGISTRY }}/capstone/frontend:${{ env.IMAGE_TAG }}
+
+          docker push \
+            ${{ env.ECR_REGISTRY }}/capstone/frontend:${{ env.IMAGE_TAG }}
+
+      - name: Deployment Success
+        if: success()
+        run: |
+          echo "✅ Deployment Successful"
+
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ Deployment Failed"
