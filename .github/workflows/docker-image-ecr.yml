@@ -119,9 +119,9 @@ jobs:
       - name: Deployment Success
         if: success()
         run: |
-          echo "✅ Deployment Successful"
+          echo "✅ Deployment Successful - Build Version: $IMAGE_TAG"
 
       - name: Deployment Failed
         if: failure()
         run: |
-          echo "❌ Deployment Failed"
+          echo "❌ Deployment Failed - Build Version: $IMAGE_TAG"
