@@ -28,7 +28,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          ref: CICD_DockerImage_ECR_EC2
+          ref: refs/heads/CICD_DockerImage_ECR_EC2
 
       - name: Cleanup Docker Images
         run: |
