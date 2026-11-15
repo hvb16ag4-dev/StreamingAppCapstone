@@ -11,12 +11,26 @@ on:
         options:
           - uat
           - prod
+      operation:
+        description: "Deploy the application or manually destroy UAT infrastructure"
+        required: true
+        default: "deploy"
+        type: choice
+        options:
+          - deploy
+          - destroy
+      confirm_destroy:
+        description: "Required confirmation when operation is destroy"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   build-and-deploy:
+    if: ${{ inputs.operation == 'deploy' }}
     name: Build, push, and deploy ${{ inputs.environment }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
@@ -334,3 +348,116 @@ jobs:
       - name: Deployment failed
         if: failure()
         run: echo "Build and deployment failed; review the failed step logs."
+
+  destroy-uat:
+    if: ${{ inputs.operation == 'destroy' }}
+    name: Manually destroy UAT infrastructure
+    runs-on: ubuntu-latest
+    environment: uat
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: terraform-uat
+      cancel-in-progress: false
+    env:
+      REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
+      CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'streamingapp-uat-eks' }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_environment: uat
+      TF_VAR_cluster_public_access_cidrs: '["10.0.0.0/8"]'
+      NAMESPACE: streamingapp-uat
+      RELEASE: streamingapp-uat
+    steps:
+      - name: Validate manual destroy request
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "$REQUESTED_ENVIRONMENT" != "uat" ]]; then
+            echo "::error::This destroy operation is restricted to UAT. Select uat as the environment."
+            exit 1
+          fi
+          if [[ "$CONFIRM_DESTROY" != "true" ]]; then
+            echo "::error::Check confirm_destroy to authorize teardown of UAT resources."
+            exit 1
+          fi
+          for name in AWS_ROLE_ARN AWS_REGION AWS_ACCOUNT_ID TF_STATE_BUCKET TF_LOCK_TABLE; do
+            if [[ -z "${!name}" || "${!name}" == "$name" ]]; then
+              echo "::error::Missing required UAT GitHub environment secret or variable: ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: feature_terraform
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS account
+        shell: bash
+        run: |
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          if [[ "$account_id" != "$AWS_ACCOUNT_ID" ]]; then
+            echo "::error::Authenticated AWS account does not match AWS_ACCOUNT_ID; refusing to destroy."
+            exit 1
+          fi
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Initialize UAT Terraform state
+        working-directory: terraform
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=streamingapp/uat/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE}"
+
+      - name: Remove UAT Helm release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cluster_names="$(aws eks list-clusters --region "$AWS_REGION" \
+            --query 'clusters[]' --output text)"
+          if [[ -z "$cluster_names" || "$cluster_names" == "None" ]] ||
+            ! grep -Fxq "$EKS_CLUSTER_NAME" <<< "$(tr '\t' '\n' <<< "$cluster_names")"; then
+            echo "UAT EKS cluster is absent; skipping Helm cleanup."
+            exit 0
+          fi
+
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+          helm uninstall "$RELEASE" --namespace "$NAMESPACE" \
+            --ignore-not-found --wait --timeout 10m
+          kubectl delete namespace "$NAMESPACE" \
+            --ignore-not-found=true --wait=true --timeout=10m
+
+      - name: Destroy UAT Terraform infrastructure
+        working-directory: terraform
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          terraform destroy -input=false -auto-approve -lock-timeout=10m
