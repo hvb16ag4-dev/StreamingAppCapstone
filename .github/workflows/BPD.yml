@@ -18,7 +18,6 @@ permissions:
 jobs:
   build-and-deploy:
     name: Build, push, and deploy ${{ inputs.environment }}
-    if: github.ref == 'refs/heads/feature_terraform'
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     permissions:
