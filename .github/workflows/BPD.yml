@@ -1,0 +1,196 @@
+name: Build, Push, and Deploy StreamingApp
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        default: "uat"
+        type: choice
+        options:
+          - uat
+          - prod
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    name: Build, push, and deploy ${{ inputs.environment }}
+    if: github.ref == 'refs/heads/feature_terraform'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: helm-streamingapp-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      DEPLOY_ENV: ${{ inputs.environment }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || format('streamingapp-{0}-eks', inputs.environment) }}
+      AWS_S3_BUCKET: ${{ vars.AWS_S3_BUCKET }}
+      APP_MEDIA_ROLE_ARN: ${{ vars.APP_MEDIA_ROLE_ARN }}
+      NAMESPACE: streamingapp-${{ inputs.environment }}
+      RELEASE: streamingapp-${{ inputs.environment }}
+      IMAGE_TAG: ${{ github.run_number }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: feature_terraform
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Debug Helm chart path
+        shell: bash
+        run: |
+          pwd
+          ls -la
+          find . -name Chart.yaml -print
+          test -f ./helm/streamingapp/Chart.yaml
+
+      - name: Check deployment configuration
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        shell: bash
+        run: |
+          for name in AWS_ROLE_ARN AWS_REGION AWS_ACCOUNT_ID AWS_S3_BUCKET APP_MEDIA_ROLE_ARN; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required GitHub environment secret or variable for ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS account and configure EKS access
+        shell: bash
+        run: |
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          if [[ "$account_id" != "$AWS_ACCOUNT_ID" ]]; then
+            echo "::error::Authenticated AWS account does not match AWS_ACCOUNT_ID"
+            exit 1
+          fi
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+          kubectl get nodes
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push application images
+        env:
+          IMAGE_PREFIX: ${{ steps.ecr-login.outputs.registry }}/streamingapp-${{ inputs.environment }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          REACT_APP_AUTH_API_URL: /api
+          REACT_APP_STREAMING_API_URL: /api
+          REACT_APP_STREAMING_PUBLIC_URL: /
+          REACT_APP_ADMIN_API_URL: /api/admin
+          REACT_APP_CHAT_API_URL: /api/chat
+          REACT_APP_CHAT_SOCKET_URL: /
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose build auth streaming admin chat frontend
+          docker compose push auth streaming admin chat frontend
+
+      - name: Deploy the pushed images to EKS with Helm
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          helm_args=(
+            --set-string "services.auth.image=${REGISTRY}/streamingapp-${DEPLOY_ENV}-auth:${IMAGE_TAG}"
+            --set-string "services.streaming.image=${REGISTRY}/streamingapp-${DEPLOY_ENV}-streaming:${IMAGE_TAG}"
+            --set-string "services.admin.image=${REGISTRY}/streamingapp-${DEPLOY_ENV}-admin:${IMAGE_TAG}"
+            --set-string "services.chat.image=${REGISTRY}/streamingapp-${DEPLOY_ENV}-chat:${IMAGE_TAG}"
+            --set-string "services.frontend.image=${REGISTRY}/streamingapp-${DEPLOY_ENV}-frontend:${IMAGE_TAG}"
+            --set-string "awsRegion=${AWS_REGION}"
+            --set-string "objectStorage.bucket=${AWS_S3_BUCKET}"
+            --set-string "services.streaming.env.AWS_S3_BUCKET=${AWS_S3_BUCKET}"
+            --set-string "services.admin.env.AWS_S3_BUCKET=${AWS_S3_BUCKET}"
+            --set-string "serviceAccount.name=streamingapp-${DEPLOY_ENV}-app"
+            --set-string "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=${APP_MEDIA_ROLE_ARN}"
+          )
+
+          helm lint ./helm/streamingapp "${helm_args[@]}"
+          helm template "$RELEASE" ./helm/streamingapp \
+            --namespace "$NAMESPACE" "${helm_args[@]}" >/dev/null
+
+          kubectl create namespace "$NAMESPACE" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          if ! kubectl --namespace "$NAMESPACE" get secret streamingapp-runtime >/dev/null 2>&1; then
+            jwt_secret="$(openssl rand -hex 32)"
+            kubectl --namespace "$NAMESPACE" create secret generic streamingapp-runtime \
+              --from-literal="jwt-secret=${jwt_secret}"
+            unset jwt_secret
+          fi
+
+          helm upgrade --install "$RELEASE" ./helm/streamingapp \
+            --namespace "$NAMESPACE" --create-namespace \
+            "${helm_args[@]}" --wait --timeout 10m
+
+          ingress_hostname=""
+          for attempt in {1..60}; do
+            ingress_hostname="$(kubectl --namespace "$NAMESPACE" \
+              get ingress "$RELEASE" \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+            [[ -n "$ingress_hostname" ]] && break
+            sleep 10
+          done
+          if [[ -z "$ingress_hostname" ]]; then
+            kubectl --namespace "$NAMESPACE" describe ingress "$RELEASE" || true
+            echo "::error::Ingress has no load balancer hostname; check the AWS Load Balancer Controller"
+            exit 1
+          fi
+
+          app_origin="http://${ingress_hostname}"
+          helm upgrade "$RELEASE" ./helm/streamingapp \
+            --namespace "$NAMESPACE" "${helm_args[@]}" \
+            --set-string "services.auth.env.CLIENT_URLS=${app_origin}" \
+            --set-string "services.streaming.env.CLIENT_URLS=${app_origin}" \
+            --set-string "services.admin.env.CLIENT_URLS=${app_origin}" \
+            --set-string "services.chat.env.CLIENT_URLS=${app_origin}" \
+            --set-string "services.streaming.env.STREAMING_PUBLIC_URL=${app_origin}" \
+            --set-string "services.admin.env.STREAMING_PUBLIC_URL=${app_origin}" \
+            --wait --timeout 10m
+
+          kubectl --namespace "$NAMESPACE" \
+            wait --for=condition=Available deployment --all --timeout=10m
+
+          for attempt in {1..12}; do
+            if curl -sf --max-time 10 "http://${ingress_hostname}/" >/dev/null; then
+              echo "Application is reachable at http://${ingress_hostname}/"
+              break
+            fi
+            if [[ "$attempt" -eq 12 ]]; then
+              echo "::error::Application smoke test failed"
+              exit 1
+            fi
+            sleep 15
+          done
+
+          kubectl --namespace "$NAMESPACE" get deployments,pods,services,pvc,ingress
+
+      - name: Deployment success
+        if: success()
+        run: echo "Build ${IMAGE_TAG} was pushed to ECR and deployed to ${EKS_CLUSTER_NAME}"
+
+      - name: Deployment failed
+        if: failure()
+        run: echo "Build and deployment failed; review the failed step logs."
