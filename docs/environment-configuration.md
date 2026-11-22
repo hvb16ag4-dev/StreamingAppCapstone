@@ -74,6 +74,8 @@ For Docker Compose-only tests, leave `AWS_S3_ENDPOINT` and `AWS_S3_BUCKET` unset
 
 Create an IAM Identity Center permission set and assign the appropriate team group in each AWS account. Keep UAT deployers separate from production approvers/operators. Do not share one IAM user or static access key between teams. Confirm the selected profile/account before each Terraform or deploy operation:
 
+For GitHub Actions CI/CD prerequisites, OIDC roles, UAT state setup, repository environments, and runner networking, see [github-actions-cicd-setup.md](./github-actions-cicd-setup.md).
+
 ```bash
 aws sso login --profile streamingapp-uat
 aws sts get-caller-identity --profile streamingapp-uat
@@ -87,7 +89,7 @@ cp terraform/backend/uat.s3.tfbackend.example terraform/backend/uat.s3.tfbackend
 cp helm/streamingapp/values-uat.yaml.example helm/streamingapp/values-uat.yaml
 ```
 
-Use the equivalent `prod` templates only in the dedicated production account. Set the actual trusted EKS API CIDR, region, account/profile, public HTTPS origin, S3 bucket output, and IRSA role output. `terraform/environments/*.tfvars` and the non-example local Helm values are ignored by Git.
+Use the equivalent `prod` templates only in the dedicated production account. Set the actual trusted EKS API CIDR, region, account/profile, environment-appropriate public origin, S3 bucket output, and IRSA role output. `terraform/environments/*.tfvars` and generated UAT/PROD Helm values are ignored by Git.
 
 Terraform names clusters as `<project>-<environment>-eks`, and creates that environment's VPC, security group, EKS managed node group, OIDC provider, ALB Controller role, immutable ECR repositories, private encrypted/versioned media bucket, and a least-privilege app IRSA role. When enabled in UAT only, it also creates an isolated DEV test bucket and a separate role for local one-hour sessions. EKS managed node groups supply the EC2 instances; a separate EC2 module is not needed for this design. VPC, security group, and IAM resources are already part of the root configuration; they have not been extracted into reusable child modules.
 
@@ -146,21 +148,52 @@ AWS_PROFILE=streamingapp-uat terraform plan -var-file=environments/uat.tfvars
 
 Apply only after the account, plan, trusted CIDR, cost, and approval have been checked. The configuration blocks public bucket access, enables server-side encryption and versioning, and restricts each app/local role to its own bucket's list/get/put/delete operations. Buckets are not force-deleted; remove retained object versions deliberately before destroying an environment.
 
-After an approved Terraform apply and required EKS add-ons are ready, export values from that same environment/account and deploy:
+### Manually deploy to UAT with `k8s-deploy.sh`
+
+Use this path to test the AWS deployment before adding GitHub Actions workflows. Run it from a workstation or build host with Docker, AWS CLI, `kubectl`, Helm, OpenSSL, and Git installed. That machine's current public egress IP must be included as a `/32` in the EKS public API allowlist. The script builds and pushes images from that machine; the GitHub runner is not used for this manual deployment.
+
+Before deploying, confirm all of the following:
+
+- The UAT Terraform apply has completed, and `streamingapp-uat-eks`, its ECR repositories, media bucket, and app media IRSA role exist.
+- The operator's IAM Identity Center role has an EKS access entry/policy and the required ECR push permissions. Confirm Kubernetes permissions for the `streamingapp-uat` namespace.
+- The AWS Load Balancer Controller is installed and Available in `kube-system`.
+- An EBS CSI driver and default StorageClass are available for the MongoDB PVC.
+- `cluster_public_access_cidrs` contains the deployment machine's current public egress IP with `/32`; update the ignored UAT tfvars and apply a reviewed Terraform plan first if needed. Never use `0.0.0.0/0`.
+
+The UAT values file is generated from the tracked template and remains local/ignored:
+
+```bash
+cp helm/streamingapp/values-uat.yaml.example helm/streamingapp/values-uat.yaml
+```
+
+Edit `values-uat.yaml` and replace the media bucket, app media role ARN, and `REPLACE_WITH_UAT_ALB_DNS_NAME` placeholders with the UAT Terraform outputs and current ALB DNS name, if one is already available. If this is the first deployment and the ALB does not exist yet, the `k8s-deploy.sh aws` helper discovers its hostname and updates the service origins after the Ingress creates it. The helper also supplies immutable ECR image tags and the Terraform bucket/role values at deploy time. For this helper-managed flow, do not change the UAT image names to localhost images.
+
+Authenticate and export the UAT deployment inputs from the repository root:
 
 ```bash
 export DEPLOY_ENV=uat
 export PROJECT_NAME=streamingapp
 export AWS_PROFILE=streamingapp-uat
+aws sso login --profile "$AWS_PROFILE"
+aws sts get-caller-identity --profile "$AWS_PROFILE"
 export EXPECTED_AWS_ACCOUNT_ID=YOUR_UAT_ACCOUNT_ID
 export AWS_REGION=ap-south-1
 export EKS_CLUSTER_NAME=streamingapp-uat-eks
-export TRUSTED_EKS_API_CIDR=YOUR_TRUSTED_PUBLIC_IP/32
-export AWS_S3_BUCKET="$(cd terraform && terraform output -raw media_bucket_name)"
-export APP_MEDIA_ROLE_ARN="$(cd terraform && terraform output -raw app_media_access_role_arn)"
+export TRUSTED_EKS_API_CIDR=YOUR_CURRENT_PUBLIC_EGRESS_IP/32
+export AWS_S3_BUCKET="$(AWS_PROFILE="$AWS_PROFILE" terraform -chdir=terraform output -raw media_bucket_name)"
+export APP_MEDIA_ROLE_ARN="$(AWS_PROFILE="$AWS_PROFILE" terraform -chdir=terraform output -raw app_media_access_role_arn)"
 export HELM_VALUES_FILE=helm/streamingapp/values-uat.yaml
+```
+
+Check that the Terraform outputs are non-empty, the expected account is UAT, and all required commands are installed. Then start the deployment:
+
+```bash
 ./scripts/k8s-deploy.sh aws
 ```
+
+The helper verifies the AWS account, cluster CIDR, ECR repositories, nodes, load balancer controller, and default StorageClass. It then asks you to type `deploy`, builds and pushes five images to UAT ECR, creates a runtime JWT Secret if needed, installs/upgrades the Helm release, waits for the ALB hostname and workloads, and prints the HTTP UAT URL. It does **not** run Terraform. The first run may take several minutes while the ALB is provisioned. The current UAT setup uses HTTP without a custom domain or TLS; do not use it for production.
+
+If a prerequisite check fails, stop and resolve that prerequisite rather than bypassing the check. For screenshots, use the printed ALB URL and verify registration/login, admin upload, thumbnail, and video playback. Upload only test media. The Helm release, EKS cluster, ALB, EBS volume, and S3 objects can incur charges; follow the UAT cost/destroy guidance in [github-actions-cicd-setup.md](./github-actions-cicd-setup.md) when finished.
 
 For PROD, use `DEPLOY_ENV=prod`, the production profile/account ID, production values file, and production Terraform outputs. The helper verifies the AWS account and trusted EKS API CIDR, checks required ECR repositories and cluster prerequisites, and prompts for the literal `deploy` before it pushes images and changes the release. It never runs `terraform apply`. Do not use the example HTTP ALB configuration for a public production service; configure an ACM certificate, HTTPS listener/redirect, DNS, secure secret management, and approved production values before rollout.
 
