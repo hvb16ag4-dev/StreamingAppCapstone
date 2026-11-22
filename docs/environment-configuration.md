@@ -148,6 +148,55 @@ AWS_PROFILE=streamingapp-uat terraform plan -var-file=environments/uat.tfvars
 
 Apply only after the account, plan, trusted CIDR, cost, and approval have been checked. The configuration blocks public bucket access, enables server-side encryption and versioning, and restricts each app/local role to its own bucket's list/get/put/delete operations. Buckets are not force-deleted; remove retained object versions deliberately before destroying an environment.
 
+### Provision the UAT EKS infrastructure
+
+The Terraform root provisions the VPC/public subnets, EKS control plane and managed node group, ECR repositories, media bucket, and application/ALB-controller IAM roles. It does **not** install the AWS Load Balancer Controller or EBS CSI driver, create EKS access entries for additional operators/deploy roles, or deploy the application. Review those post-provisioning items before starting the manual deploy below.
+
+1. Copy the UAT Terraform and backend templates if you have not already done so. Set the real UAT account's backend bucket in `terraform/backend/uat.s3.tfbackend`; in `terraform/environments/uat.tfvars`, replace the documentation-only CIDR with the trusted `/32` addresses that will access the EKS API. Include the current public egress IP for your manual deployment workstation and, if the runner will deploy later, its current public egress IP. Never use `0.0.0.0/0`. Confirm the configured EKS Kubernetes version is currently supported in `ap-south-1` before applying.
+2. From the repository root, authenticate to UAT and verify the account ID is exactly the expected UAT account:
+
+   ```bash
+   export AWS_PROFILE=streamingapp-uat
+   aws sso login --profile "$AWS_PROFILE"
+   aws sts get-caller-identity --profile "$AWS_PROFILE"
+   ```
+
+3. Initialize the remote backend, validate the configuration, and review the plan:
+
+   ```bash
+   cd terraform
+   terraform init -reconfigure -backend-config=backend/uat.s3.tfbackend
+   terraform fmt -check
+   terraform validate
+   terraform plan -var-file=environments/uat.tfvars
+   ```
+
+   If `init` reports a missing backend bucket/table, stop and complete the bootstrap section above. Review the full plan, AWS account, region, CIDRs, resource counts, node size/capacity, and estimated costs. Do not apply a plan containing unexpected replacements or deletions.
+4. Only after approving the plan, apply the UAT configuration:
+
+   ```bash
+   terraform apply -var-file=environments/uat.tfvars
+   ```
+
+   Review the apply plan shown by Terraform and confirm only if it matches the reviewed changes. The apply creates billable AWS resources; Terraform apply is not part of the manual app deploy helper.
+5. Verify the cluster and record its outputs:
+
+   ```bash
+   aws eks describe-cluster --profile "$AWS_PROFILE" --region ap-south-1 \
+     --name streamingapp-uat-eks --query 'cluster.status' --output text
+   terraform output -raw cluster_name
+   terraform output -raw media_bucket_name
+   terraform output -raw app_media_access_role_arn
+   terraform output -raw load_balancer_controller_role_arn
+   aws eks update-kubeconfig --profile "$AWS_PROFILE" --region ap-south-1 \
+     --name streamingapp-uat-eks
+   kubectl get nodes
+   ```
+
+   Wait until the cluster is `ACTIVE` and the managed node is `Ready`. If `kubectl` reports access denied, create/verify an EKS access entry for the IAM Identity Center role you are using. Use the IAM role ARN (not an STS assumed-role session ARN) and grant only the cluster/namespace permissions needed for administration.
+6. Before application deployment, install and verify the AWS Load Balancer Controller using the Terraform output role ARN, and configure the EBS CSI driver with its required IAM role/policy and a default StorageClass. The current Terraform root creates the ALB controller IAM role/policy but does not install the controller; it does not yet provision an EBS CSI IAM role or add-on. Follow the current AWS/EKS installation instructions for the chosen supported versions, and do not proceed to the app deploy until both controllers and storage are healthy.
+7. If the deployment workstation or runner public IP changes, update `cluster_public_access_cidrs` in UAT tfvars and run a reviewed `terraform plan`/`apply` before that client uses the public EKS API. There is no need to change the allowlist for the public ALB application endpoint.
+
 ### Manually deploy to UAT with `k8s-deploy.sh`
 
 Use this path to test the AWS deployment before adding GitHub Actions workflows. Run it from a workstation or build host with Docker, AWS CLI, `kubectl`, Helm, OpenSSL, and Git installed. That machine's current public egress IP must be included as a `/32` in the EKS public API allowlist. The script builds and pushes images from that machine; the GitHub runner is not used for this manual deployment.
