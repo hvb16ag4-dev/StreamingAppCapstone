@@ -330,3 +330,23 @@ NAME                                         CLASS   HOSTS   ADDRESS            
 ingress.networking.k8s.io/streamingapp-uat   alb     *       k8s-streamin-streamin-c7ff46018b-1844002002.ap-south-1.elb.amazonaws.com   80      76s
 
 ```
+
+> <img width="1541" height="987" alt="image" src="https://github.com/user-attachments/assets/30855013-e9a1-4906-b832-d2f626e3b128" />
+
+> <img width="1794" height="917" alt="image" src="https://github.com/user-attachments/assets/51960a37-20e7-47a0-8a17-f16f2e54249a" />
+
+> <img width="1694" height="956" alt="image" src="https://github.com/user-attachments/assets/829aaa19-9062-4a42-b04c-ac5a13ede0e8" />
+
+> <img width="1367" height="810" alt="image" src="https://github.com/user-attachments/assets/4a74067a-76f3-4a0e-ac0a-61f9bbadd2f5" />
+
+> <img width="1320" height="557" alt="image" src="https://github.com/user-attachments/assets/84498c50-be59-443f-bb86-ddc210bef330" />
+
+> <img width="1671" height="721" alt="image" src="https://github.com/user-attachments/assets/6e4d88cd-c3b2-42a8-9734-82ac3498e280" />
+
+> <img width="1731" height="560" alt="image" src="https://github.com/user-attachments/assets/e2354fd2-2e62-4840-8fe2-b451c5133f07" />
+
+>
+>
+
+
+```
