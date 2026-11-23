@@ -1,8 +1,5 @@
-
+# terraform apply
 ```
-
-
-
 Outputs
 Apply complete! Resources: 27 added, 0 changed, 0 destroyed.
 
@@ -17,7 +14,9 @@ local_dev_media_bucket_name = ""
 media_bucket_name = "streamingapp-uat-129373676098-ap-south-1"
 vpc_id = "vpc-04fbe6ba879594ba9"
 
-
+```
+# terraform state list
+```
 terraform state list
 abhis@Bharathgift MINGW64 ~/Harika/CapstoneProject4_EndToEnd/NOV/StreamingAppCapstone/terraform ((874455b...))
 $ terraform state list
@@ -53,7 +52,10 @@ aws_security_group.cluster
 aws_subnet.public[0]
 aws_subnet.public[1]
 aws_vpc.main
+```
 
+# terraform destroy
+```
 
 Plan: 0 to add, 0 to change, 27 to destroy.
 
